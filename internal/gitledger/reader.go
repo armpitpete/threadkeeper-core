@@ -101,7 +101,8 @@ func (r *Reader) IsBare(ctx context.Context) (bool, error) {
 }
 
 // CheckHistorySafety rejects repository features that can cause Git to present
-// an authority history different from the stored commit graph.
+// an authority history or object namespace different from the repository's own
+// stored commit graph and object database.
 func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
 	if err != nil {
@@ -119,6 +120,17 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 		return fmt.Errorf("INTEGRITY_FAILURE: Git grafts are forbidden in authoritative ledger")
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect graft metadata: %w", err)
+	}
+	for _, rel := range []string{
+		filepath.Join("objects", "info", "alternates"),
+		filepath.Join("objects", "info", "http-alternates"),
+	} {
+		full := filepath.Join(r.gitDir, rel)
+		if _, err := os.Lstat(full); err == nil {
+			return fmt.Errorf("INTEGRITY_FAILURE: Git object alternates are forbidden in authoritative ledger: %s", filepath.ToSlash(rel))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect Git object alternates %s: %w", filepath.ToSlash(rel), err)
+		}
 	}
 	config, err := os.ReadFile(filepath.Join(r.gitDir, "config"))
 	if err != nil {
