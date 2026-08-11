@@ -1,6 +1,6 @@
 # Threadkeeper Core Contract Standard v0.1
 
-**Status:** Proposed architecture contract  
+**Status:** Normative only when present on the repository default branch; unmerged copies are candidates  
 **Scope:** Authority, storage and interface semantics  
 **Technology selection:** Not yet authorised by this standard
 
