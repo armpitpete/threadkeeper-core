@@ -39,6 +39,9 @@ func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath
 	if eventID == "" || strings.ContainsAny(eventID, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid event id")
 	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return nil, err
+	}
 
 	current, err := r.Head(ctx)
 	if err != nil {
@@ -130,6 +133,9 @@ func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candida
 	if err := validateEventPath(eventPath); err != nil {
 		return err
 	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
+	}
 	if err := r.verifyExactChild(ctx, strings.ToLower(expectedHead), strings.ToLower(candidateCommit)); err != nil {
 		return err
 	}
@@ -145,6 +151,9 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	}
 	expectedHead = strings.ToLower(expectedHead)
 	candidateCommit = strings.ToLower(candidateCommit)
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
+	}
 	if err := r.verifyExactChild(ctx, expectedHead, candidateCommit); err != nil {
 		return err
 	}
@@ -155,6 +164,12 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	}
 	if current != expectedHead {
 		return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, current)
+	}
+	// Recheck repository-local safety immediately before the authority-changing
+	// ref operation. The runtime deployment must additionally make the ledger
+	// directory service-owned so untrusted processes cannot race this check.
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
 	}
 
 	hooksDir, err := os.MkdirTemp("", "threadkeeper-no-hooks-*")
@@ -168,6 +183,9 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
 		}
 		return err
+	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: repository safety check: %w", err)
 	}
 	got, err := r.Head(ctx)
 	if err != nil {
