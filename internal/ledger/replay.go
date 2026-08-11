@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
+	"github.com/armpitpete/threadkeeper-core/internal/policy"
+	"github.com/armpitpete/threadkeeper-core/internal/reducer"
 	"github.com/armpitpete/threadkeeper-core/internal/schema"
 	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
 )
@@ -27,19 +30,42 @@ type ReplayEntry struct {
 }
 
 type ReplayManifest struct {
-	LedgerCommit       string        `json:"ledger_commit"`
-	AuthoritativeRef   string        `json:"authoritative_ref"`
-	GitObjectFormat    string        `json:"git_object_format"`
-	BareRepository     bool          `json:"bare_repository"`
-	HistoryCommitCount int           `json:"history_commit_count"`
-	EventCount         int           `json:"event_count"`
-	ReplaySHA256       string        `json:"replay_sha256"`
-	Events             []ReplayEntry `json:"events"`
+	LedgerCommit          string             `json:"ledger_commit"`
+	AuthoritativeRef      string             `json:"authoritative_ref"`
+	GitObjectFormat       string             `json:"git_object_format"`
+	BareRepository        bool               `json:"bare_repository"`
+	HistoryCommitCount    int                `json:"history_commit_count"`
+	EventCount            int                `json:"event_count"`
+	ReducerBindingCount   int                `json:"reducer_binding_count"`
+	GovernedRecordCount   int                `json:"governed_record_count"`
+	GovernedRecordsSHA256 string             `json:"governed_records_sha256"`
+	GovernedRecords       reducer.Projection `json:"governed_records"`
+	ReplaySHA256          string             `json:"replay_sha256"`
+	Events                []ReplayEntry      `json:"events"`
 }
 
-// Replay validates the authoritative Git history and builds a deterministic
-// audit projection. It does not apply event-type-specific current-state
-// semantics; that requires separately accepted event semantics.
+type eventDocument struct {
+	SchemaVersion          string          `json:"schema_version"`
+	EventID                string          `json:"event_id"`
+	EventType              string          `json:"event_type"`
+	ExpectedLedgerCommit   string          `json:"expected_ledger_commit"`
+	AuthorityPolicyVersion string          `json:"authority_policy_version"`
+	Targets                []string        `json:"targets"`
+	RecordKind             string          `json:"record_kind"`
+	Value                  json.RawMessage `json:"value"`
+	PriorState             json.RawMessage `json:"prior_state"`
+	ResultingState         json.RawMessage `json:"resulting_state"`
+	IdempotencyKey         string          `json:"idempotency_key"`
+}
+
+type validatedEvent struct {
+	Entry    ReplayEntry
+	Document eventDocument
+}
+
+// Replay validates the authoritative Git history, builds a deterministic audit
+// manifest, and applies only explicitly accepted current-state reducer
+// semantics. It remains read-only and cannot advance the authoritative ref.
 func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err := r.CheckHistorySafety(ctx); err != nil {
 		return nil, err
@@ -71,41 +97,115 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 		BareRepository:     bare,
 		HistoryCommitCount: len(history),
 		Events:             []ReplayEntry{},
+		GovernedRecords:    reducer.Projection{},
 	}
 	seenEventIDs := map[string]ReplayEntry{}
+	seenIdempotencyKeys := map[string]ReplayEntry{}
+	projection := reducer.Projection{}
+	bindingCount := 0
 
 	for _, commit := range history {
+		schemaChanges, err := r.ImmutableJSONAdditions(ctx, commit.ID, "config/schemas")
+		if err != nil {
+			return nil, err
+		}
+		bindingChanges, err := r.ImmutableJSONAdditions(ctx, commit.ID, policy.ReducerBindingPrefix)
+		if err != nil {
+			return nil, err
+		}
 		additions, err := r.EventAdditions(ctx, commit.ID)
 		if err != nil {
 			return nil, err
 		}
-		if len(additions) == 0 {
+		if len(schemaChanges) == 0 && len(bindingChanges) == 0 && len(additions) == 0 {
 			continue
 		}
+
 		registry, err := loadSchemasAt(ctx, r, commit.ID)
 		if err != nil {
 			return nil, fmt.Errorf("schema snapshot at %s: %w", commit.ID, err)
 		}
+		bindings, err := policy.LoadReducerBindingsAt(ctx, r, registry, commit.ID)
+		if err != nil {
+			return nil, fmt.Errorf("reducer binding snapshot at %s: %w", commit.ID, err)
+		}
+		bindingCount = len(bindings.ByRecordKind)
+
 		for _, addition := range additions {
-			entry, err := validateEvent(ctx, r, registry, addition)
+			validated, err := validateEvent(ctx, r, registry, addition)
 			if err != nil {
 				return nil, err
 			}
+			entry := validated.Entry
 			if prior, exists := seenEventIDs[entry.EventID]; exists {
 				return nil, fmt.Errorf("INTEGRITY_FAILURE: duplicate logical event_id %q at %s and %s", entry.EventID, prior.Path, entry.Path)
 			}
+			if validated.Document.IdempotencyKey != "" {
+				if prior, exists := seenIdempotencyKeys[validated.Document.IdempotencyKey]; exists {
+					return nil, fmt.Errorf("INTEGRITY_FAILURE: duplicate idempotency_key %q at %s and %s", validated.Document.IdempotencyKey, prior.Path, entry.Path)
+				}
+				seenIdempotencyKeys[validated.Document.IdempotencyKey] = entry
+			}
+
+			if strings.HasPrefix(entry.EventType, "core.record.") {
+				projection, err = applyGovernedRecordEvent(projection, bindings, commit, validated)
+				if err != nil {
+					return nil, fmt.Errorf("event %s at %s reducer: %w", entry.Path, commit.ID, err)
+				}
+			}
+
 			entry.Sequence = len(manifest.Events) + 1
 			manifest.Events = append(manifest.Events, entry)
 			seenEventIDs[entry.EventID] = entry
 		}
 	}
+
 	manifest.EventCount = len(manifest.Events)
+	manifest.ReducerBindingCount = bindingCount
+	manifest.GovernedRecordCount = len(projection)
+	manifest.GovernedRecords = projection
+	projectionCanonical, err := reducer.CanonicalProjection(projection)
+	if err != nil {
+		return nil, err
+	}
+	projectionSum := sha256.Sum256(projectionCanonical)
+	manifest.GovernedRecordsSHA256 = hex.EncodeToString(projectionSum[:])
+
 	replayDigest, err := replayDigest(manifest)
 	if err != nil {
 		return nil, err
 	}
 	manifest.ReplaySHA256 = replayDigest
 	return manifest, nil
+}
+
+func applyGovernedRecordEvent(current reducer.Projection, bindings *policy.ReducerBindingSnapshot, commit gitledger.Commit, validated validatedEvent) (reducer.Projection, error) {
+	doc := validated.Document
+	binding, exists := bindings.ByRecordKind[doc.RecordKind]
+	if !exists {
+		return nil, fmt.Errorf("%w: record_kind %q", reducer.ErrPolicyUnbound, doc.RecordKind)
+	}
+	if validated.Entry.SchemaVersion != binding.EventSchema {
+		return nil, fmt.Errorf("REDUCER_EVENT_SCHEMA_MISMATCH: event schema %q binding requires %q", validated.Entry.SchemaVersion, binding.EventSchema)
+	}
+	if doc.AuthorityPolicyVersion != binding.AuthorityPolicyVersion {
+		return nil, fmt.Errorf("AUTHORITY_POLICY_VERSION_MISMATCH: event has %q binding requires %q", doc.AuthorityPolicyVersion, binding.AuthorityPolicyVersion)
+	}
+	if commit.Parent == "" {
+		return nil, fmt.Errorf("EXPECTED_LEDGER_COMMIT_MISMATCH: reducer event cannot be accepted in root commit")
+	}
+	if doc.ExpectedLedgerCommit != commit.Parent {
+		return nil, fmt.Errorf("EXPECTED_LEDGER_COMMIT_MISMATCH: event has %q accepting parent is %q", doc.ExpectedLedgerCommit, commit.Parent)
+	}
+	return reducer.Apply(current, bindings.ReducerBindings(), reducer.Event{
+		EventID:        doc.EventID,
+		EventType:      doc.EventType,
+		Targets:        doc.Targets,
+		RecordKind:     doc.RecordKind,
+		Value:          doc.Value,
+		PriorState:     doc.PriorState,
+		ResultingState: doc.ResultingState,
+	})
 }
 
 func loadSchemasAt(ctx context.Context, r *gitledger.Reader, commit string) (*schema.Registry, error) {
@@ -141,74 +241,79 @@ func loadSchemasAt(ctx context.Context, r *gitledger.Reader, commit string) (*sc
 	return registry, nil
 }
 
-func validateEvent(ctx context.Context, r *gitledger.Reader, registry *schema.Registry, addition gitledger.EventAddition) (ReplayEntry, error) {
+func validateEvent(ctx context.Context, r *gitledger.Reader, registry *schema.Registry, addition gitledger.EventAddition) (validatedEvent, error) {
 	raw, err := r.ReadFile(ctx, addition.Commit, addition.Path)
 	if err != nil {
-		return ReplayEntry{}, err
+		return validatedEvent{}, err
 	}
 	if err := strictjson.Validate(raw); err != nil {
-		return ReplayEntry{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
+		return validatedEvent{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
 	}
 	canonical, err := canonicaljson.Canonicalize(raw)
 	if err != nil {
-		return ReplayEntry{}, fmt.Errorf("event %s at %s canonicalization: %w", addition.Path, addition.Commit, err)
+		return validatedEvent{}, fmt.Errorf("event %s at %s canonicalization: %w", addition.Path, addition.Commit, err)
 	}
 	if !bytes.Equal(raw, canonical) {
-		return ReplayEntry{}, fmt.Errorf("INTEGRITY_FAILURE: event %s at %s is not stored as RFC 8785 canonical JSON", addition.Path, addition.Commit)
+		return validatedEvent{}, fmt.Errorf("INTEGRITY_FAILURE: event %s at %s is not stored as RFC 8785 canonical JSON", addition.Path, addition.Commit)
 	}
 	if err := digest.Verify(raw); err != nil {
-		return ReplayEntry{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
+		return validatedEvent{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
 	}
+
+	var doc eventDocument
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return validatedEvent{}, fmt.Errorf("event %s decode: %w", addition.Path, err)
+	}
+	if doc.SchemaVersion == "" {
+		return validatedEvent{}, fmt.Errorf("UNKNOWN_SCHEMA: event %s has no schema_version", addition.Path)
+	}
+	if err := registry.Validate(doc.SchemaVersion, raw); err != nil {
+		return validatedEvent{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
+	}
+	contentSHA := ""
 	value, err := strictjson.Decode(raw)
 	if err != nil {
-		return ReplayEntry{}, err
+		return validatedEvent{}, err
 	}
 	obj, ok := value.(map[string]any)
 	if !ok {
-		return ReplayEntry{}, fmt.Errorf("event %s root must be object", addition.Path)
+		return validatedEvent{}, fmt.Errorf("event %s root must be object", addition.Path)
 	}
-	schemaVersion, _ := obj["schema_version"].(string)
-	if schemaVersion == "" {
-		return ReplayEntry{}, fmt.Errorf("UNKNOWN_SCHEMA: event %s has no schema_version", addition.Path)
+	contentSHA, _ = obj[digest.Field].(string)
+	if doc.EventID == "" || doc.EventType == "" || contentSHA == "" {
+		return validatedEvent{}, fmt.Errorf("INTEGRITY_FAILURE: event %s lacks replay identity fields", addition.Path)
 	}
-	// For v1 replay, schema_version is the immutable accepted schema $id.
-	if err := registry.Validate(schemaVersion, raw); err != nil {
-		return ReplayEntry{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
-	}
-	eventID, _ := obj["event_id"].(string)
-	eventType, _ := obj["event_type"].(string)
-	contentSHA, _ := obj[digest.Field].(string)
-	if eventID == "" || eventType == "" || contentSHA == "" {
-		return ReplayEntry{}, fmt.Errorf("INTEGRITY_FAILURE: event %s lacks replay identity fields", addition.Path)
-	}
-	targets, ok := obj["targets"].([]any)
-	if !ok {
-		return ReplayEntry{}, fmt.Errorf("INTEGRITY_FAILURE: event %s targets must be an array", addition.Path)
-	}
-	return ReplayEntry{
+	entry := ReplayEntry{
 		AcceptedCommit: addition.Commit,
 		Path:           addition.Path,
-		EventID:        eventID,
-		EventType:      eventType,
-		SchemaVersion:  schemaVersion,
+		EventID:        doc.EventID,
+		EventType:      doc.EventType,
+		SchemaVersion:  doc.SchemaVersion,
 		ContentSHA256:  contentSHA,
-		TargetCount:    len(targets),
-	}, nil
+		TargetCount:    len(doc.Targets),
+	}
+	return validatedEvent{Entry: entry, Document: doc}, nil
 }
 
 func replayDigest(manifest *ReplayManifest) (string, error) {
 	payload := struct {
-		LedgerCommit       string        `json:"ledger_commit"`
-		AuthoritativeRef   string        `json:"authoritative_ref"`
-		GitObjectFormat    string        `json:"git_object_format"`
-		HistoryCommitCount int           `json:"history_commit_count"`
-		Events             []ReplayEntry `json:"events"`
+		LedgerCommit          string        `json:"ledger_commit"`
+		AuthoritativeRef      string        `json:"authoritative_ref"`
+		GitObjectFormat       string        `json:"git_object_format"`
+		HistoryCommitCount    int           `json:"history_commit_count"`
+		ReducerBindingCount   int           `json:"reducer_binding_count"`
+		GovernedRecordCount   int           `json:"governed_record_count"`
+		GovernedRecordsSHA256 string        `json:"governed_records_sha256"`
+		Events                []ReplayEntry `json:"events"`
 	}{
-		LedgerCommit:       manifest.LedgerCommit,
-		AuthoritativeRef:   manifest.AuthoritativeRef,
-		GitObjectFormat:    manifest.GitObjectFormat,
-		HistoryCommitCount: manifest.HistoryCommitCount,
-		Events:             manifest.Events,
+		LedgerCommit:          manifest.LedgerCommit,
+		AuthoritativeRef:      manifest.AuthoritativeRef,
+		GitObjectFormat:       manifest.GitObjectFormat,
+		HistoryCommitCount:    manifest.HistoryCommitCount,
+		ReducerBindingCount:   manifest.ReducerBindingCount,
+		GovernedRecordCount:   manifest.GovernedRecordCount,
+		GovernedRecordsSHA256: manifest.GovernedRecordsSHA256,
+		Events:                manifest.Events,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
