@@ -75,7 +75,7 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		return nil, nil, fmt.Errorf("%w: idempotency_key is required", ErrCandidateInvalid)
 	}
 
-	accepted, err := findAcceptedIdempotency(ctx, r, doc.IdempotencyKey)
+	accepted, err := findAcceptedIdempotencyAt(ctx, r, manifest.LedgerCommit, doc.IdempotencyKey)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -154,7 +154,7 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	if err != nil {
 		return nil, err
 	}
-	accepted, err := findAcceptedIdempotency(ctx, r, candidate.IdempotencyKey)
+	accepted, err := findAcceptedIdempotencyAt(ctx, r, manifest.LedgerCommit, candidate.IdempotencyKey)
 	if err != nil {
 		return nil, err
 	}
@@ -174,7 +174,7 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 		if errors.Is(err, gitledger.ErrStaleState) {
 			afterRace, replayErr := Replay(ctx, r)
 			if replayErr == nil {
-				raced, lookupErr := findAcceptedIdempotency(ctx, r, candidate.IdempotencyKey)
+				raced, lookupErr := findAcceptedIdempotencyAt(ctx, r, afterRace.LedgerCommit, candidate.IdempotencyKey)
 				if lookupErr == nil && raced != nil && raced.Entry.ContentSHA256 == candidate.ContentSHA256 && raced.Document.EventID == candidate.EventID {
 					return responseFromAccepted(WriteStatusAlreadyAccepted, afterRace.LedgerCommit, raced), nil
 				}
@@ -187,7 +187,7 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	if err != nil {
 		return nil, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: accepted commit %s: %w", candidate.CandidateCommit, err)
 	}
-	accepted, err = findAcceptedIdempotency(ctx, r, candidate.IdempotencyKey)
+	accepted, err = findAcceptedIdempotencyAt(ctx, r, post.LedgerCommit, candidate.IdempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: %w", err)
 	}
@@ -290,13 +290,12 @@ func validatePreparedCandidate(ctx context.Context, r *gitledger.Reader, registr
 	return validated, nil
 }
 
-func findAcceptedIdempotency(ctx context.Context, r *gitledger.Reader, key string) (*validatedEvent, error) {
+// findAcceptedIdempotencyAt searches exactly one validated ledger snapshot.
+// It must never re-resolve the authoritative ref internally: callers pair the
+// returned event with the same snapshot head in WriteResponse.LedgerCommit.
+func findAcceptedIdempotencyAt(ctx context.Context, r *gitledger.Reader, head, key string) (*validatedEvent, error) {
 	if key == "" {
 		return nil, nil
-	}
-	head, err := r.Head(ctx)
-	if err != nil {
-		return nil, err
 	}
 	history, err := r.History(ctx, head)
 	if err != nil {
