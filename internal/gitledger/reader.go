@@ -55,7 +55,7 @@ func New(gitDir, ref string) (*Reader, error) {
 	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid authoritative ref %q", ref)
 	}
-	return &Reader{gitPath: gitPath, gitDir: abs, ref: ref, timeout: 15 * time.Second}, nil
+	return &Reader{gitPath: gitPath, gitDir: abs, ref: ref, timeout: 60 * time.Second}, nil
 }
 
 func (r *Reader) Ref() string { return r.ref }
@@ -100,8 +100,42 @@ func (r *Reader) IsBare(ctx context.Context) (bool, error) {
 	}
 }
 
+// CheckHistorySafety rejects repository features that can cause Git to present
+// an authority history different from the stored commit graph.
+func (r *Reader) CheckHistorySafety(ctx context.Context) error {
+	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(string(out)) == "true" {
+		return fmt.Errorf("INTEGRITY_FAILURE: shallow authoritative ledger histories are forbidden")
+	}
+	if _, err := os.Stat(filepath.Join(r.gitDir, "shallow")); err == nil {
+		return fmt.Errorf("INTEGRITY_FAILURE: shallow metadata exists in authoritative ledger")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect shallow metadata: %w", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.gitDir, "info", "grafts")); err == nil {
+		return fmt.Errorf("INTEGRITY_FAILURE: Git grafts are forbidden in authoritative ledger")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect graft metadata: %w", err)
+	}
+	config, err := os.ReadFile(filepath.Join(r.gitDir, "config"))
+	if err != nil {
+		return fmt.Errorf("read ledger Git config: %w", err)
+	}
+	lower := strings.ToLower(string(config))
+	if strings.Contains(lower, "[include") {
+		return fmt.Errorf("INTEGRITY_FAILURE: Git config includes are forbidden in authoritative ledger")
+	}
+	if strings.Contains(lower, "[fsck") {
+		return fmt.Errorf("INTEGRITY_FAILURE: repository-local fsck overrides are forbidden")
+	}
+	return nil
+}
+
 func (r *Reader) FSCK(ctx context.Context) error {
-	if _, err := r.run(ctx, "fsck", "--full", "--strict", "--no-dangling"); err != nil {
+	if _, err := r.run(ctx, "-c", "fsck.skipList="+os.DevNull, "fsck", "--full", "--strict", "--no-dangling"); err != nil {
 		return fmt.Errorf("INTEGRITY_FAILURE: git fsck: %w", err)
 	}
 	return nil
@@ -170,8 +204,11 @@ func (r *Reader) EventAdditions(ctx context.Context, commit string) ([]EventAddi
 		if status != "A" {
 			return nil, fmt.Errorf("INTEGRITY_FAILURE: durable event path %q changed with status %q; event files are immutable", path, status)
 		}
-		if !strings.HasPrefix(path, "events/") || !strings.HasSuffix(path, ".json") {
-			continue
+		if !strings.HasPrefix(path, "events/") {
+			return nil, fmt.Errorf("INTEGRITY_FAILURE: unexpected event tree path %q", path)
+		}
+		if !strings.HasSuffix(path, ".json") {
+			return nil, fmt.Errorf("INTEGRITY_FAILURE: durable event file %q is not JSON", path)
 		}
 		additions = append(additions, EventAddition{Commit: strings.ToLower(commit), Path: path})
 	}
@@ -230,7 +267,11 @@ func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
 		if len(msg) > 800 {
 			msg = msg[:800]
 		}
-		return nil, fmt.Errorf("GIT_FAILURE: git %s failed: %w: %s", args[0], err, msg)
+		command := "git"
+		if len(args) > 0 {
+			command += " " + args[0]
+		}
+		return nil, fmt.Errorf("GIT_FAILURE: %s failed: %w: %s", command, err, msg)
 	}
 	return stdout.Bytes(), nil
 }
@@ -238,11 +279,13 @@ func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
 func controlledEnv() []string {
 	blocked := []string{
 		"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=", "GIT_ALTERNATE_OBJECT_DIRECTORIES=",
-		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_COMMON_DIR=",
-		"GIT_EXEC_PATH=", "GIT_TEMPLATE_DIR=", "GIT_SSH=", "GIT_SSH_COMMAND=", "GIT_ASKPASS=", "SSH_ASKPASS=",
-		"GIT_TERMINAL_PROMPT=", "GIT_PAGER=", "PAGER=", "GIT_EDITOR=", "GIT_SEQUENCE_EDITOR=", "LC_ALL=", "LANG=",
+		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_CONFIG_COUNT=",
+		"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_CONFIG_PARAMETERS=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_SHALLOW_FILE=",
+		"GIT_GRAFT_FILE=", "GIT_EXEC_PATH=", "GIT_TEMPLATE_DIR=", "GIT_SSH=", "GIT_SSH_COMMAND=", "GIT_ASKPASS=", "SSH_ASKPASS=",
+		"GIT_TERMINAL_PROMPT=", "GIT_PAGER=", "PAGER=", "GIT_EDITOR=", "GIT_SEQUENCE_EDITOR=", "GIT_LITERAL_PATHSPECS=",
+		"GIT_GLOB_PATHSPECS=", "GIT_NOGLOB_PATHSPECS=", "GIT_ICASE_PATHSPECS=", "GIT_ATTR_NOSYSTEM=", "LC_ALL=", "LANG=",
 	}
-	env := make([]string, 0, len(os.Environ())+8)
+	env := make([]string, 0, len(os.Environ())+10)
 	for _, item := range os.Environ() {
 		blockedItem := false
 		for _, prefix := range blocked {
@@ -262,6 +305,8 @@ func controlledEnv() []string {
 		"GIT_PAGER=cat",
 		"PAGER=cat",
 		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_NO_REPLACE_OBJECTS=1",
+		"GIT_ATTR_NOSYSTEM=1",
 		"LC_ALL=C",
 		"LANG=C",
 	)
