@@ -18,7 +18,7 @@ Run `git fsck --full --strict` before treating ledger content as replayable. Cor
 
 ## RO-03 — Controlled Git environment
 
-Read operations ignore system/global Git configuration, replacement refs, pagers, editors, prompts, alternate object directories and authority-relevant ambient Git path variables.
+Read operations ignore system/global Git configuration, replacement refs, namespaces, shallow-file overrides, command-line config injection, pagers, editors, prompts, alternate object directories and authority-relevant ambient Git path variables.
 
 ## RO-04 — No shell execution
 
@@ -30,11 +30,11 @@ The v1 authoritative ledger history must be a single parent chain. Merge commits
 
 ## RO-06 — Immutable accepted event paths
 
-An event file under `events/` may be added once. Modification, deletion, rename or copy history for an accepted event path fails closed.
+An event file under `events/` may be added once. Modification, deletion, rename or copy history for an accepted event path fails closed. Durable files in `events/` must be JSON.
 
 ## RO-07 — Historical schema snapshot
 
-Each event is validated using the schema registry present in the exact Git commit that accepted that event, not a later schema snapshot.
+Each event is validated using the schema registry present in the exact Git commit that accepted that event, not a later schema snapshot. For v1 replay, an event's `schema_version` value names the immutable accepted schema `$id`.
 
 ## RO-08 — Offline schema validation
 
@@ -68,6 +68,14 @@ The existing `threadkeeper-core authority-write` command must continue to fail w
 
 This lane does not infer how arbitrary event types modify governed current state. It projects validated acceptance history only. Event-type-specific state reducers require separately accepted schemas/semantics.
 
+## RO-16 — No hidden history indirection
+
+Shallow repositories/shallow metadata, Git grafts, repository-local fsck overrides and repository config includes are forbidden for an authoritative ledger. Replay fails closed if any are present.
+
+## RO-17 — Logical event identity is unique
+
+A logical `event_id` may occur only once in accepted replay history. A second accepted event with the same logical event ID is an integrity failure, regardless of path or content.
+
 ## Completion gate
 
-The lane is complete only when exact-head CI proves healthy replay, corruption rejection, immutable-event rejection, digest failure detection, CGO-free build, clean module metadata, and the continuing hard authority-write disable gate.
+The lane is complete only when exact-head CI proves healthy replay, ambient Git isolation, shallow/graft rejection, corruption rejection, immutable-event rejection, duplicate-event-ID rejection, digest failure detection, CGO-free build, clean module metadata, and the continuing hard authority-write disable gate.
