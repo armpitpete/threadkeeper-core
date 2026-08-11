@@ -1,6 +1,6 @@
 # ADR-001: Threadkeeper Core Is Independent From AI
 
-- **Status:** Proposed
+- **Status:** Accepted when present on the repository default branch; candidate otherwise
 - **Date:** 2026-08-11
 - **Decision scope:** Foundational architecture
 
