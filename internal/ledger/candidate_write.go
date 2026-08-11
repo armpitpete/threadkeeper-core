@@ -163,6 +163,9 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	if manifest.LedgerCommit != strings.ToLower(candidate.ExpectedHead) {
 		return nil, fmt.Errorf("%w: expected %s current %s", gitledger.ErrStaleState, candidate.ExpectedHead, manifest.LedgerCommit)
 	}
+	if err := validateCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
+		return nil, err
+	}
 	if err := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit); err != nil {
 		if errors.Is(err, gitledger.ErrStaleState) {
 			afterRace, replayErr := Replay(ctx, r)
@@ -188,6 +191,41 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 		return nil, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: accepted event identity not recoverable from ledger")
 	}
 	return responseFromAccepted(WriteStatusAccepted, post.LedgerCommit, accepted), nil
+}
+
+func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate) error {
+	if candidate.IdempotencyKey == "" || candidate.EventID == "" || candidate.ContentSHA256 == "" {
+		return fmt.Errorf("%w: candidate handle lacks durable identity", ErrCandidateInvalid)
+	}
+	if err := r.VerifyEventCandidate(ctx, manifest.LedgerCommit, candidate.CandidateCommit, candidate.EventPath); err != nil {
+		return fmt.Errorf("%w: Git candidate verification: %v", ErrCandidateInvalid, err)
+	}
+	registry, err := loadSchemasAt(ctx, r, manifest.LedgerCommit)
+	if err != nil {
+		return err
+	}
+	additions, err := r.EventAdditions(ctx, candidate.CandidateCommit)
+	if err != nil {
+		return err
+	}
+	if len(additions) != 1 || additions[0].Path != candidate.EventPath {
+		return fmt.Errorf("%w: candidate event path mismatch", ErrCandidateInvalid)
+	}
+	validated, err := validateEvent(ctx, r, registry, additions[0])
+	if err != nil {
+		return fmt.Errorf("%w: candidate event validation: %v", ErrCandidateInvalid, err)
+	}
+	if validated.Document.EventID != candidate.EventID || validated.Document.IdempotencyKey != candidate.IdempotencyKey || validated.Entry.ContentSHA256 != candidate.ContentSHA256 {
+		return fmt.Errorf("%w: candidate handle does not match candidate commit event identity", ErrCandidateInvalid)
+	}
+	bindings, err := policy.LoadReducerBindingsAt(ctx, r, registry, manifest.LedgerCommit)
+	if err != nil {
+		return err
+	}
+	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, gitledger.Commit{ID: candidate.CandidateCommit, Parent: manifest.LedgerCommit}, validated); err != nil {
+		return fmt.Errorf("%w: candidate reducer validation: %v", ErrCandidateInvalid, err)
+	}
+	return nil
 }
 
 func parseCandidateDocument(raw []byte) (candidateDocument, error) {

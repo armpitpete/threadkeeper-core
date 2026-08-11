@@ -106,10 +106,7 @@ func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath
 	if !isObjectID(commit) {
 		return nil, fmt.Errorf("GIT_FAILURE: invalid candidate commit id %q", commit)
 	}
-	if err := r.verifyExactChild(ctx, expectedHead, commit); err != nil {
-		return nil, err
-	}
-	if err := r.verifySinglePathAddition(ctx, commit, eventPath); err != nil {
+	if err := r.VerifyEventCandidate(ctx, expectedHead, commit, eventPath); err != nil {
 		return nil, err
 	}
 	return &CandidateCommit{
@@ -119,6 +116,22 @@ func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath
 		EventPath:    eventPath,
 		EventBlob:    strings.ToLower(blob),
 	}, nil
+}
+
+// VerifyEventCandidate rechecks that a candidate is exactly one safe event
+// addition on top of the expected head. Acceptance callers must invoke this
+// rather than trusting a serialized or caller-supplied candidate handle.
+func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candidateCommit, eventPath string) error {
+	if !isObjectID(expectedHead) || !isObjectID(candidateCommit) {
+		return fmt.Errorf("invalid candidate object id")
+	}
+	if err := validateEventPath(eventPath); err != nil {
+		return err
+	}
+	if err := r.verifyExactChild(ctx, strings.ToLower(expectedHead), strings.ToLower(candidateCommit)); err != nil {
+		return err
+	}
+	return r.verifySinglePathAddition(ctx, strings.ToLower(candidateCommit), eventPath)
 }
 
 // CompareAndSwap advances the authoritative ref only if it still equals the
@@ -199,7 +212,7 @@ func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []strin
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir, "-c", "core.hooksPath=" + hooksDir, "-c", "commit.gpgSign=false"}
 	cmd := exec.CommandContext(ctx, r.gitPath, append(base, args...)...)
-	cmd.Env = append(controlledEnv(), extraEnv...)
+	cmd.Env = controlledWriteEnv(extraEnv)
 	if stdin != nil {
 		cmd.Stdin = bytes.NewReader(stdin)
 	}
@@ -221,6 +234,18 @@ func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []strin
 		return nil, fmt.Errorf("GIT_FAILURE: %s failed: %w: %s", command, err, msg)
 	}
 	return stdout.Bytes(), nil
+}
+
+func controlledWriteEnv(extra []string) []string {
+	base := controlledEnv()
+	env := make([]string, 0, len(base)+len(extra))
+	for _, item := range base {
+		if strings.HasPrefix(item, "GIT_AUTHOR_") || strings.HasPrefix(item, "GIT_COMMITTER_") || strings.HasPrefix(item, "EMAIL=") {
+			continue
+		}
+		env = append(env, item)
+	}
+	return append(env, extra...)
 }
 
 func temporaryIndexPath() (string, error) {

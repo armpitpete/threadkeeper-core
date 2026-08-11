@@ -22,11 +22,12 @@ A candidate-write implementation conforms only if all applicable gates pass on t
 18. **CW-18 — Crash before CAS.** Reopening/replaying the ledger after prepare-only still returns H0 and no candidate event.
 19. **CW-19 — Crash after CAS.** Direct CAS followed by retry reconstructs `already_accepted` with original accepting commit.
 20. **CW-20 — Hook isolation.** A repository `reference-transaction` hook that would reject/write a sentinel is not executed by CAS.
-21. **CW-21 — CAS child guard.** A commit not having H0 as its sole parent cannot be passed to authoritative CAS.
-22. **CW-22 — Post-CAS replay.** Success is returned only after full replay verifies the new head/event identity.
-23. **CW-23 — Current-head response.** Idempotent retry returns original accepting commit and separately reports current ledger head.
-24. **CW-24 — Direct Git.** Candidate construction and CAS use direct Git process invocation, not shell command strings.
-25. **CW-25 — Existing read safety.** Read-only fsck/history/config/environment protections continue to pass.
-26. **CW-26 — Build.** CGO-free Linux build succeeds.
-27. **CW-27 — Module lock.** `go mod tidy` does not change committed module metadata.
-28. **CW-28 — Full suite.** `go test ./...` passes, including all earlier reducer/replay conformance tests.
+21. **CW-21 — Acceptance revalidation.** Treat the candidate handle as untrusted: immediately before CAS, re-read the candidate commit and require the exact H0 parent, sole event-path delta, event ID, idempotency key, digest, schema/policy binding and reducer semantics. A forged/substituted candidate handle must fail without moving the ref.
+22. **CW-22 — CAS child guard.** A commit not having H0 as its sole parent cannot be passed to authoritative CAS.
+23. **CW-23 — Post-CAS replay.** Success is returned only after full replay verifies the new head/event identity.
+24. **CW-24 — Current-head response.** Idempotent retry returns original accepting commit and separately reports current ledger head.
+25. **CW-25 — Direct Git.** Candidate construction and CAS use direct Git process invocation, not shell command strings.
+26. **CW-26 — Existing read safety.** Read-only fsck/history/config/environment protections continue to pass.
+27. **CW-27 — Build.** CGO-free Linux build succeeds.
+28. **CW-28 — Module lock.** `go mod tidy` does not change committed module metadata.
+29. **CW-29 — Full suite.** `go test ./...` passes, including all earlier reducer/replay conformance tests.

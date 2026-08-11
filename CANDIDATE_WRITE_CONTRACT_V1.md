@@ -120,6 +120,8 @@ A prepared candidate exposes:
 
 Git commit identity is not the logical event identity. The event ID and SHA-256 remain stable across future Git hash migrations.
 
+A candidate handle is **untrusted input at acceptance time**. Immediately before CAS, Core must independently re-read the candidate commit and verify its exact parent, sole event-path addition, canonical event bytes, event ID, idempotency key, content digest, historical schema/binding and reducer transition against H0. A caller cannot gain authority by substituting a different commit or path into a previously prepared handle.
+
 ## 8. Exact-head compare-and-swap
 
 Acceptance requires all of the following immediately before ref advancement:

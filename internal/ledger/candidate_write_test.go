@@ -240,6 +240,34 @@ func TestCASRejectsCandidateThatIsNotExactChild(t *testing.T) {
 	}
 }
 
+func TestAcceptRevalidatesUntrustedCandidateHandle(t *testing.T) {
+	r, head := candidateTestReader(t)
+	firstEvent := makeCreateCandidateEvent(t, head, "candidate-1", "idem-handle-1", json.RawMessage(`{"enabled":true}`))
+	secondEvent := makeCreateCandidateEvent(t, head, "candidate-2", "idem-handle-2", json.RawMessage(`{"enabled":false}`))
+	first, _, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/candidate-1.json", Event: firstEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/candidate-2.json", Event: secondEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := *first
+	forged.CandidateCommit = second.CandidateCommit
+	forged.EventPath = second.EventPath
+	_, err = AcceptWriteCandidate(context.Background(), r, forged)
+	if err == nil || !errors.Is(err, ErrCandidateInvalid) {
+		t.Fatalf("expected forged candidate handle rejection, got %v", err)
+	}
+	got, headErr := r.Head(context.Background())
+	if headErr != nil {
+		t.Fatal(headErr)
+	}
+	if got != head {
+		t.Fatalf("forged candidate changed authority: got %s want %s", got, head)
+	}
+}
+
 func candidateTestReader(t *testing.T) (*gitledger.Reader, string) {
 	t.Helper()
 	work := setupReducerLedger(t, true)
