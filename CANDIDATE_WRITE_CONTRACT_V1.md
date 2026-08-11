@@ -45,6 +45,7 @@ Before Git candidate construction, Core must require:
 - RFC 8785 canonical storage bytes;
 - valid `content_sha256`;
 - non-empty `event_id` and `idempotency_key`;
+- `event_id` not already present in accepted history unless the request has already resolved as the same idempotent retry;
 - event `expected_ledger_commit` equal to the exact current head;
 - historical schema validation at that head;
 - an accepted reducer binding for the event's `record_kind`;

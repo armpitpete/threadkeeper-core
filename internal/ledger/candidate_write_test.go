@@ -240,6 +240,67 @@ func TestCASRejectsCandidateThatIsNotExactChild(t *testing.T) {
 	}
 }
 
+func TestPrepareRejectsDuplicateLogicalEventIDBeforeCandidateCreation(t *testing.T) {
+	r, head := candidateTestReader(t)
+	firstEvent := makeCreateCandidateEventForTarget(t, head, "duplicate-event", "idem-first", testTargetID, json.RawMessage(`{"enabled":true}`))
+	first, _, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/first.json", Event: firstEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcceptWriteCandidate(context.Background(), r, *first); err != nil {
+		t.Fatal(err)
+	}
+	newHead, err := r.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvent := makeCreateCandidateEventForTarget(t, newHead, "duplicate-event", "idem-second", "setting:other", json.RawMessage(`{"enabled":false}`))
+	_, _, err = PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: newHead, EventPath: "events/governance/second.json", Event: secondEvent})
+	if err == nil || !errors.Is(err, ErrEventIDConflict) {
+		t.Fatalf("expected event-id conflict before candidate creation, got %v", err)
+	}
+}
+
+func TestAcceptRejectsExternallyConstructedDuplicateLogicalEventID(t *testing.T) {
+	r, head := candidateTestReader(t)
+	firstEvent := makeCreateCandidateEventForTarget(t, head, "duplicate-event", "idem-first", testTargetID, json.RawMessage(`{"enabled":true}`))
+	first, _, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/first.json", Event: firstEvent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := AcceptWriteCandidate(context.Background(), r, *first); err != nil {
+		t.Fatal(err)
+	}
+	newHead, err := r.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondEvent := makeCreateCandidateEventForTarget(t, newHead, "duplicate-event", "idem-second", "setting:other", json.RawMessage(`{"enabled":false}`))
+	gitCandidate, err := r.PrepareEventCommit(context.Background(), newHead, "events/governance/second.json", secondEvent, "duplicate-event")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contentSHA, _, err := digest.Compute(secondEvent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := WriteCandidate{
+		ExpectedHead: newHead, CandidateCommit: gitCandidate.Commit, EventPath: gitCandidate.EventPath,
+		EventID: "duplicate-event", IdempotencyKey: "idem-second", ContentSHA256: contentSHA,
+	}
+	_, err = AcceptWriteCandidate(context.Background(), r, forged)
+	if err == nil || !errors.Is(err, ErrEventIDConflict) {
+		t.Fatalf("expected acceptance-side event-id conflict, got %v", err)
+	}
+	got, headErr := r.Head(context.Background())
+	if headErr != nil {
+		t.Fatal(headErr)
+	}
+	if got != newHead {
+		t.Fatalf("duplicate event id changed authority: got %s want %s", got, newHead)
+	}
+}
+
 func TestAcceptRevalidatesUntrustedCandidateHandle(t *testing.T) {
 	r, head := candidateTestReader(t)
 	firstEvent := makeCreateCandidateEvent(t, head, "candidate-1", "idem-handle-1", json.RawMessage(`{"enabled":true}`))
@@ -285,8 +346,13 @@ func candidateTestReader(t *testing.T) (*gitledger.Reader, string) {
 
 func makeCreateCandidateEvent(t *testing.T, expectedHead, eventID, idempotencyKey string, value json.RawMessage) []byte {
 	t.Helper()
+	return makeCreateCandidateEventForTarget(t, expectedHead, eventID, idempotencyKey, testTargetID, value)
+}
+
+func makeCreateCandidateEventForTarget(t *testing.T, expectedHead, eventID, idempotencyKey, targetID string, value json.RawMessage) []byte {
+	t.Helper()
 	state := reducer.State{
-		TargetID:       testTargetID,
+		TargetID:       targetID,
 		RecordKind:     testRecordKind,
 		Status:         reducer.StatusActive,
 		Revision:       1,
@@ -301,11 +367,11 @@ func makeCreateCandidateEvent(t *testing.T, expectedHead, eventID, idempotencyKe
 		"actor":                    map[string]any{"type": "human", "id": "owner:test"},
 		"expected_ledger_commit":   expectedHead,
 		"authority_policy_version": testPolicyV1,
-		"targets":                  []string{testTargetID},
+		"targets":                  []string{targetID},
 		"source_versions":          []string{"source:fixture@1"},
 		"record_kind":              testRecordKind,
 		"value":                    value,
-		"prior_state":              map[string]any{"exists": false, "target_id": testTargetID},
+		"prior_state":              map[string]any{"exists": false, "target_id": targetID},
 		"resulting_state":          state,
 		"reason":                   "candidate-write conformance fixture",
 		"idempotency_key":          idempotencyKey,

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
 	"strings"
 )
 
@@ -55,11 +56,12 @@ func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath
 		return nil, fmt.Errorf("EVENT_PATH_EXISTS: %s", eventPath)
 	}
 
-	indexPath, err := temporaryIndexPath()
+	indexDir, err := os.MkdirTemp("", "threadkeeper-index-*")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create private Git index directory: %w", err)
 	}
-	defer os.Remove(indexPath)
+	defer os.RemoveAll(indexDir)
+	indexPath := filepath.Join(indexDir, "index")
 	hooksDir, err := os.MkdirTemp("", "threadkeeper-no-hooks-*")
 	if err != nil {
 		return nil, fmt.Errorf("create empty hooks directory: %w", err)
@@ -246,22 +248,6 @@ func controlledWriteEnv(extra []string) []string {
 		env = append(env, item)
 	}
 	return append(env, extra...)
-}
-
-func temporaryIndexPath() (string, error) {
-	f, err := os.CreateTemp("", "threadkeeper-index-*")
-	if err != nil {
-		return "", fmt.Errorf("create temporary Git index path: %w", err)
-	}
-	name := f.Name()
-	if err := f.Close(); err != nil {
-		os.Remove(name)
-		return "", fmt.Errorf("close temporary Git index: %w", err)
-	}
-	if err := os.Remove(name); err != nil {
-		return "", fmt.Errorf("prepare temporary Git index: %w", err)
-	}
-	return name, nil
 }
 
 func validateEventPath(p string) error {

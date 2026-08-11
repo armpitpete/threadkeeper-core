@@ -19,6 +19,7 @@ import (
 var (
 	ErrIdempotencyConflict = errors.New("IDEMPOTENCY_CONFLICT")
 	ErrCandidateInvalid    = errors.New("CANDIDATE_INVALID")
+	ErrEventIDConflict     = errors.New("EVENT_ID_CONFLICT")
 )
 
 const (
@@ -83,6 +84,9 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 			return nil, nil, fmt.Errorf("%w: key %q is already bound to event %q digest %s", ErrIdempotencyConflict, doc.IdempotencyKey, accepted.Document.EventID, accepted.Entry.ContentSHA256)
 		}
 		return nil, responseFromAccepted(WriteStatusAlreadyAccepted, manifest.LedgerCommit, accepted), nil
+	}
+	if err := requireEventIDAvailable(manifest, doc.EventID); err != nil {
+		return nil, nil, err
 	}
 
 	if strings.ToLower(req.ExpectedHead) != manifest.LedgerCommit {
@@ -196,6 +200,9 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate) error {
 	if candidate.IdempotencyKey == "" || candidate.EventID == "" || candidate.ContentSHA256 == "" {
 		return fmt.Errorf("%w: candidate handle lacks durable identity", ErrCandidateInvalid)
+	}
+	if err := requireEventIDAvailable(manifest, candidate.EventID); err != nil {
+		return err
 	}
 	if err := r.VerifyEventCandidate(ctx, manifest.LedgerCommit, candidate.CandidateCommit, candidate.EventPath); err != nil {
 		return fmt.Errorf("%w: Git candidate verification: %v", ErrCandidateInvalid, err)
@@ -319,6 +326,15 @@ func findAcceptedIdempotency(ctx context.Context, r *gitledger.Reader, key strin
 		}
 	}
 	return nil, nil
+}
+
+func requireEventIDAvailable(manifest *ReplayManifest, eventID string) error {
+	for _, entry := range manifest.Events {
+		if entry.EventID == eventID {
+			return fmt.Errorf("%w: event_id %q is already accepted at %s", ErrEventIDConflict, eventID, entry.AcceptedCommit)
+		}
+	}
+	return nil
 }
 
 func responseFromAccepted(status, ledgerCommit string, accepted *validatedEvent) *WriteResponse {
