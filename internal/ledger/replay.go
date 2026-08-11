@@ -16,14 +16,14 @@ import (
 )
 
 type ReplayEntry struct {
-	Sequence        int    `json:"sequence"`
-	AcceptedCommit  string `json:"accepted_commit"`
-	Path            string `json:"path"`
-	EventID         string `json:"event_id"`
-	EventType       string `json:"event_type"`
-	SchemaVersion   string `json:"schema_version"`
-	ContentSHA256   string `json:"content_sha256"`
-	TargetCount     int    `json:"target_count"`
+	Sequence       int    `json:"sequence"`
+	AcceptedCommit string `json:"accepted_commit"`
+	Path           string `json:"path"`
+	EventID        string `json:"event_id"`
+	EventType      string `json:"event_type"`
+	SchemaVersion  string `json:"schema_version"`
+	ContentSHA256  string `json:"content_sha256"`
+	TargetCount    int    `json:"target_count"`
 }
 
 type ReplayManifest struct {
@@ -41,6 +41,9 @@ type ReplayManifest struct {
 // audit projection. It does not apply event-type-specific current-state
 // semantics; that requires separately accepted event semantics.
 func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return nil, err
+	}
 	head, err := r.Head(ctx)
 	if err != nil {
 		return nil, err
@@ -69,6 +72,7 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 		HistoryCommitCount: len(history),
 		Events:             []ReplayEntry{},
 	}
+	seenEventIDs := map[string]ReplayEntry{}
 
 	for _, commit := range history {
 		additions, err := r.EventAdditions(ctx, commit.ID)
@@ -87,8 +91,12 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 			if err != nil {
 				return nil, err
 			}
+			if prior, exists := seenEventIDs[entry.EventID]; exists {
+				return nil, fmt.Errorf("INTEGRITY_FAILURE: duplicate logical event_id %q at %s and %s", entry.EventID, prior.Path, entry.Path)
+			}
 			entry.Sequence = len(manifest.Events) + 1
 			manifest.Events = append(manifest.Events, entry)
+			seenEventIDs[entry.EventID] = entry
 		}
 	}
 	manifest.EventCount = len(manifest.Events)
@@ -163,6 +171,7 @@ func validateEvent(ctx context.Context, r *gitledger.Reader, registry *schema.Re
 	if schemaVersion == "" {
 		return ReplayEntry{}, fmt.Errorf("UNKNOWN_SCHEMA: event %s has no schema_version", addition.Path)
 	}
+	// For v1 replay, schema_version is the immutable accepted schema $id.
 	if err := registry.Validate(schemaVersion, raw); err != nil {
 		return ReplayEntry{}, fmt.Errorf("event %s at %s: %w", addition.Path, addition.Commit, err)
 	}
