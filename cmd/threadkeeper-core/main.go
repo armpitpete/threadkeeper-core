@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
+	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
+	"github.com/armpitpete/threadkeeper-core/internal/ledger"
 	"github.com/armpitpete/threadkeeper-core/internal/schema"
 	"github.com/armpitpete/threadkeeper-core/internal/service"
 	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
@@ -45,6 +48,8 @@ func main() {
 		err = digestCommand(os.Args[2:])
 	case "validate":
 		err = validateCommand(os.Args[2:])
+	case "ledger-inspect":
+		err = ledgerInspectCommand(os.Args[2:])
 	case "authority-write":
 		err = service.RequireAuthorityWritesEnabled()
 	default:
@@ -58,7 +63,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: threadkeeper-core <version|check-json|canonicalize|digest|validate|authority-write> ...")
+	fmt.Fprintln(os.Stderr, "usage: threadkeeper-core <version|check-json|canonicalize|digest|validate|ledger-inspect|authority-write> ...")
 }
 
 func printVersion() error {
@@ -104,4 +109,25 @@ func validateCommand(args []string) error {
 	id, _ := obj["$id"].(string); if id == "" { return fmt.Errorf("schema $id is required") }
 	r := schema.NewRegistry(); if err := r.Add(id, schemaBytes); err != nil { return err }
 	return r.Validate(id, instanceBytes)
+}
+
+func ledgerInspectCommand(args []string) error {
+	if len(args) < 1 || len(args) > 2 {
+		return fmt.Errorf("expected ledger git directory and optional authoritative ref")
+	}
+	ref := gitledger.DefaultRef
+	if len(args) == 2 {
+		ref = args[1]
+	}
+	r, err := gitledger.New(args[0], ref)
+	if err != nil {
+		return err
+	}
+	manifest, err := ledger.Replay(context.Background(), r)
+	if err != nil {
+		return err
+	}
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(manifest)
 }
