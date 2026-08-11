@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:threadkeeper:schema:reducer-binding:v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "binding_id",
+    "record_kind",
+    "state_model",
+    "event_schema",
+    "authority_policy_version",
+    "content_sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "urn:threadkeeper:schema:reducer-binding:v1"
+    },
+    "binding_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_kind": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "state_model": {
+      "const": "exclusive-governed-record-v1"
+    },
+    "event_schema": {
+      "const": "urn:threadkeeper:schema:exclusive-governed-record-event:v1"
+    },
+    "authority_policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}
