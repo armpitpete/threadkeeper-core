@@ -58,6 +58,10 @@ Invalid requests must fail before the authoritative ref can change.
 
 A retry may arrive after the original request was accepted but before its response reached the caller. Therefore Core must first search the validated durable ledger for the supplied `idempotency_key`.
 
+The idempotency search is **snapshot-bound**. It receives the exact replay snapshot commit and searches only history reachable from that commit. It must not independently resolve the authoritative ref while constructing a response. The accepted event and the response's `ledger_commit` must therefore refer to the same exact snapshot.
+
+If the authoritative ref advances after a snapshot was captured, that operation must proceed through the normal exact-head CAS/stale-state race handling and, where necessary, perform a new replay plus a new idempotency lookup at the new exact head. It must not combine an H1 acceptance with an H0 `ledger_commit`.
+
 If the key already exists:
 
 ### Exact retry
@@ -72,7 +76,7 @@ The response must expose at least:
 - content SHA-256;
 - original event path;
 - original accepting Git commit;
-- current authoritative ledger commit.
+- authoritative ledger commit for the exact snapshot used to recover that acceptance.
 
 This response must be reconstructable from the ledger after process restart or loss of all caches.
 
@@ -84,7 +88,7 @@ It must not silently reinterpret the second request as a rebase or new decision.
 
 ## 5. Stale state
 
-If no accepted event owns the idempotency key, the request's expected head must exactly equal the current authoritative Git commit.
+If no accepted event owns the idempotency key in the exact replay snapshot, the request's expected head must exactly equal that snapshot's authoritative Git commit.
 
 Mismatch is `STALE_STATE`.
 
@@ -104,7 +108,11 @@ Implementation rules:
 - the candidate tree must differ from H0 only by the intended event addition;
 - repository Git hooks must not execute;
 - commit signing/configuration must not be inherited implicitly;
-- ambient Git namespaces, replacement refs, alternate index paths and other previously forbidden environment state remain isolated.
+- ambient Git namespaces, replacement refs, alternate index paths and other previously forbidden environment state remain isolated;
+- repository-local object alternates are forbidden: neither `objects/info/alternates` nor `objects/info/http-alternates` may exist in the authoritative ledger;
+- repository safety must be rechecked at candidate verification and again immediately before authoritative CAS.
+
+The authoritative Git repository's own object database is part of the durability boundary. Candidate validation must not be allowed to resolve H1, its tree, or its event blob from a repository-local alternate object database.
 
 Git objects created during prepare are not authority. If the process dies before ref advancement, they may remain unreachable and later be garbage-collected.
 
@@ -130,7 +138,9 @@ Acceptance requires all of the following immediately before ref advancement:
 1. authoritative ref still resolves to H0;
 2. candidate H1 exists and is a commit;
 3. H1 has exactly one parent and that parent is H0;
-4. the request has not already been accepted under its idempotency key.
+4. the request has not already been accepted under its idempotency key in the exact current snapshot;
+5. the authoritative repository contains no forbidden object-alternate metadata;
+6. repository safety has been rechecked after candidate validation and as close as practicable to the ref operation.
 
 Core then performs the equivalent of:
 
@@ -148,10 +158,11 @@ No success response may be emitted from candidate preparation alone.
 
 After a successful compare-and-swap, Core must:
 
-1. resolve the authoritative ref and require H1;
-2. run the existing full read-only replay/integrity path;
-3. recover the accepted event by idempotency key;
-4. require its event ID, content digest and accepting commit to equal the prepared candidate.
+1. recheck repository safety;
+2. resolve the authoritative ref and require H1;
+3. run the existing full read-only replay/integrity path;
+4. recover the accepted event by idempotency key at that exact replay head;
+5. require its event ID, content digest and accepting commit to equal the prepared candidate.
 
 Failure after a successful CAS is a `POST_ACCEPTANCE_VERIFICATION_FAILED` recovery condition, not permission to silently move the ref backwards.
 
@@ -175,17 +186,21 @@ This is why durable idempotency state comes from accepted events rather than a p
 
 Two candidates may be prepared against the same H0. At most one may be accepted.
 
-After one candidate advances the authoritative ref to H1, every other candidate prepared against H0 must fail exact-head CAS with `STALE_STATE` unless its idempotency key resolves to an already accepted identical request.
+After one candidate advances the authoritative ref to H1, every other candidate prepared against H0 must fail exact-head CAS with `STALE_STATE` unless a fresh replay at the new exact head shows its idempotency key resolves to an already accepted identical request.
 
 There is no automatic winner selection, merge or rebase.
 
-## 12. Hook isolation
+## 12. Git repository isolation
 
 Git repository hooks are not Threadkeeper authority policy.
 
 Candidate construction and authoritative ref CAS must override `core.hooksPath` to a known-empty location so `reference-transaction`, `pre-commit`, or other repository hooks cannot execute or veto/augment an authority transition.
 
-If future governance intentionally wants an external co-signing mechanism, it must be represented explicitly in the authority contract rather than smuggled in as a Git hook.
+Repository-local Git object alternates are also not Threadkeeper authority policy. `objects/info/alternates` and `objects/info/http-alternates` are integrity failures for the authoritative ledger.
+
+Static metadata checks cannot by themselves defend against an unrelated process that can rewrite the ledger filesystem between a safety check and `update-ref`. Therefore any later enabled service deployment must make the durable ledger directory service-owned and non-writable by untrusted users/processes. That OS-level ownership/permission proof is a deployment gate, not permission to weaken the repository checks above.
+
+If future governance intentionally wants an external co-signing or object-storage mechanism, it must be represented explicitly in the authority contract rather than smuggled in as a Git hook or alternate object database.
 
 ## 13. Public write gate remains closed
 
@@ -197,4 +212,4 @@ Enabling an external write path is a later protected decision requiring actor/au
 
 ## 14. Next gate after this contract
 
-After this machinery is accepted, Threadkeeper should run an independent adversarial review of candidate construction and crash/stale/idempotency behavior before defining actor authentication and the first intentionally enabled write interface.
+After this machinery is accepted, Threadkeeper must run an independent adversarial review of candidate construction and crash/stale/idempotency behavior before defining actor authentication and the first intentionally enabled write interface. A prior FAIL remains binding until the repaired exact head receives a fresh independent review.
