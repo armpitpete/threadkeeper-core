@@ -1,0 +1,257 @@
+package gitledger
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path"
+	"strings"
+)
+
+var (
+	ErrStaleState        = errors.New("STALE_STATE")
+	ErrCandidateNotChild = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+)
+
+type CandidateCommit struct {
+	ExpectedHead string
+	Commit       string
+	Tree         string
+	EventPath    string
+	EventBlob    string
+}
+
+// PrepareEventCommit creates Git objects for exactly one new durable event
+// without changing any ref. The candidate is not authoritative until a later
+// successful CompareAndSwap.
+func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath string, event []byte, eventID string) (*CandidateCommit, error) {
+	if !isObjectID(expectedHead) {
+		return nil, fmt.Errorf("invalid expected head %q", expectedHead)
+	}
+	expectedHead = strings.ToLower(expectedHead)
+	if err := validateEventPath(eventPath); err != nil {
+		return nil, err
+	}
+	if eventID == "" || strings.ContainsAny(eventID, "\x00\r\n") {
+		return nil, fmt.Errorf("invalid event id")
+	}
+
+	current, err := r.Head(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if current != expectedHead {
+		return nil, fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, current)
+	}
+
+	out, err := r.run(ctx, "ls-tree", "-z", expectedHead, "--", eventPath)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) != 0 {
+		return nil, fmt.Errorf("EVENT_PATH_EXISTS: %s", eventPath)
+	}
+
+	indexPath, err := temporaryIndexPath()
+	if err != nil {
+		return nil, err
+	}
+	defer os.Remove(indexPath)
+	hooksDir, err := os.MkdirTemp("", "threadkeeper-no-hooks-*")
+	if err != nil {
+		return nil, fmt.Errorf("create empty hooks directory: %w", err)
+	}
+	defer os.RemoveAll(hooksDir)
+
+	extra := []string{"GIT_INDEX_FILE=" + indexPath}
+	if _, err := r.runWrite(ctx, nil, extra, hooksDir, "read-tree", expectedHead); err != nil {
+		return nil, err
+	}
+	blobOut, err := r.runWrite(ctx, event, nil, hooksDir, "hash-object", "-w", "--stdin")
+	if err != nil {
+		return nil, err
+	}
+	blob := strings.TrimSpace(string(blobOut))
+	if !isObjectID(blob) {
+		return nil, fmt.Errorf("GIT_FAILURE: invalid event blob id %q", blob)
+	}
+	if _, err := r.runWrite(ctx, nil, extra, hooksDir, "update-index", "--add", "--cacheinfo", "100644", blob, eventPath); err != nil {
+		return nil, err
+	}
+	treeOut, err := r.runWrite(ctx, nil, extra, hooksDir, "write-tree")
+	if err != nil {
+		return nil, err
+	}
+	tree := strings.TrimSpace(string(treeOut))
+	if !isObjectID(tree) {
+		return nil, fmt.Errorf("GIT_FAILURE: invalid candidate tree id %q", tree)
+	}
+
+	message := []byte("Threadkeeper event " + eventID + "\n")
+	commitOut, err := r.runWrite(ctx, message, []string{
+		"GIT_AUTHOR_NAME=Threadkeeper Core",
+		"GIT_AUTHOR_EMAIL=threadkeeper-core@localhost",
+		"GIT_AUTHOR_DATE=2000-01-01T00:00:00Z",
+		"GIT_COMMITTER_NAME=Threadkeeper Core",
+		"GIT_COMMITTER_EMAIL=threadkeeper-core@localhost",
+		"GIT_COMMITTER_DATE=2000-01-01T00:00:00Z",
+	}, hooksDir, "commit-tree", tree, "-p", expectedHead)
+	if err != nil {
+		return nil, err
+	}
+	commit := strings.TrimSpace(string(commitOut))
+	if !isObjectID(commit) {
+		return nil, fmt.Errorf("GIT_FAILURE: invalid candidate commit id %q", commit)
+	}
+	if err := r.verifyExactChild(ctx, expectedHead, commit); err != nil {
+		return nil, err
+	}
+	if err := r.verifySinglePathAddition(ctx, commit, eventPath); err != nil {
+		return nil, err
+	}
+	return &CandidateCommit{
+		ExpectedHead: expectedHead,
+		Commit:       strings.ToLower(commit),
+		Tree:         strings.ToLower(tree),
+		EventPath:    eventPath,
+		EventBlob:    strings.ToLower(blob),
+	}, nil
+}
+
+// CompareAndSwap advances the authoritative ref only if it still equals the
+// expected head. A candidate must be the exact single-parent child of that
+// head. Repository hooks are bypassed so they cannot become hidden authority.
+func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateCommit string) error {
+	if !isObjectID(expectedHead) || !isObjectID(candidateCommit) {
+		return fmt.Errorf("invalid compare-and-swap object id")
+	}
+	expectedHead = strings.ToLower(expectedHead)
+	candidateCommit = strings.ToLower(candidateCommit)
+	if err := r.verifyExactChild(ctx, expectedHead, candidateCommit); err != nil {
+		return err
+	}
+
+	current, err := r.Head(ctx)
+	if err != nil {
+		return err
+	}
+	if current != expectedHead {
+		return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, current)
+	}
+
+	hooksDir, err := os.MkdirTemp("", "threadkeeper-no-hooks-*")
+	if err != nil {
+		return fmt.Errorf("create empty hooks directory: %w", err)
+	}
+	defer os.RemoveAll(hooksDir)
+	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", r.ref, candidateCommit, expectedHead); err != nil {
+		now, headErr := r.Head(ctx)
+		if headErr == nil && now != expectedHead {
+			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
+		}
+		return err
+	}
+	got, err := r.Head(ctx)
+	if err != nil {
+		return err
+	}
+	if got != candidateCommit {
+		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: ref resolved to %s want %s", got, candidateCommit)
+	}
+	return nil
+}
+
+func (r *Reader) verifyExactChild(ctx context.Context, expectedHead, candidateCommit string) error {
+	out, err := r.run(ctx, "rev-list", "--parents", "-n", "1", candidateCommit)
+	if err != nil {
+		return err
+	}
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) != 2 || strings.ToLower(fields[0]) != strings.ToLower(candidateCommit) || strings.ToLower(fields[1]) != strings.ToLower(expectedHead) {
+		return fmt.Errorf("%w: candidate %s must have sole parent %s", ErrCandidateNotChild, candidateCommit, expectedHead)
+	}
+	return nil
+}
+
+func (r *Reader) verifySinglePathAddition(ctx context.Context, candidateCommit, eventPath string) error {
+	out, err := r.run(ctx, "diff-tree", "--no-commit-id", "--name-status", "-r", "-z", candidateCommit)
+	if err != nil {
+		return err
+	}
+	tokens := bytes.Split(out, []byte{0})
+	nonEmpty := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		if len(token) != 0 {
+			nonEmpty = append(nonEmpty, string(token))
+		}
+	}
+	if len(nonEmpty) != 2 || nonEmpty[0] != "A" || nonEmpty[1] != eventPath {
+		return fmt.Errorf("CANDIDATE_TREE_MISMATCH: candidate must add only %q, got %q", eventPath, nonEmpty)
+	}
+	return nil
+}
+
+func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []string, hooksDir string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, r.timeout)
+	defer cancel()
+	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir, "-c", "core.hooksPath=" + hooksDir, "-c", "commit.gpgSign=false"}
+	cmd := exec.CommandContext(ctx, r.gitPath, append(base, args...)...)
+	cmd.Env = append(controlledEnv(), extraEnv...)
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("GIT_FAILURE: write command timed out")
+		}
+		msg := strings.TrimSpace(stderr.String())
+		if len(msg) > 800 {
+			msg = msg[:800]
+		}
+		command := "git"
+		if len(args) > 0 {
+			command += " " + args[0]
+		}
+		return nil, fmt.Errorf("GIT_FAILURE: %s failed: %w: %s", command, err, msg)
+	}
+	return stdout.Bytes(), nil
+}
+
+func temporaryIndexPath() (string, error) {
+	f, err := os.CreateTemp("", "threadkeeper-index-*")
+	if err != nil {
+		return "", fmt.Errorf("create temporary Git index path: %w", err)
+	}
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		os.Remove(name)
+		return "", fmt.Errorf("close temporary Git index: %w", err)
+	}
+	if err := os.Remove(name); err != nil {
+		return "", fmt.Errorf("prepare temporary Git index: %w", err)
+	}
+	return name, nil
+}
+
+func validateEventPath(p string) error {
+	if !strings.HasPrefix(p, "events/") || !strings.HasSuffix(p, ".json") || p != path.Clean(p) || strings.Contains(p, "\\") || strings.ContainsAny(p, "\x00\r\n*?[") {
+		return fmt.Errorf("invalid durable event path %q", p)
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("invalid durable event path %q", p)
+		}
+		for _, c := range part {
+			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
+				return fmt.Errorf("invalid durable event path %q", p)
+			}
+		}
+	}
+	return nil
+}
