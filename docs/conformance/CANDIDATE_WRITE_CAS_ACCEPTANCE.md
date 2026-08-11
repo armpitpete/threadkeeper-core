@@ -32,3 +32,5 @@ A candidate-write implementation conforms only if all applicable gates pass on t
 28. **CW-28 — Build.** CGO-free Linux build succeeds.
 29. **CW-29 — Module lock.** `go mod tidy` does not change committed module metadata.
 30. **CW-30 — Full suite.** `go test ./...` passes, including all earlier reducer/replay conformance tests.
+31. **CW-31 — Repository object isolation.** `objects/info/alternates` and `objects/info/http-alternates` are forbidden in an authoritative ledger. Replay, candidate verification and CAS must reject them; a repository-local alternate cannot supply H1/tree/blob objects used for authoritative ref movement.
+32. **CW-32 — Snapshot-consistent idempotency.** An idempotency lookup is bound to the exact replay snapshot commit supplied by its caller and never re-resolves the authoritative ref internally. A retry response cannot combine an acceptance found at H1 with `ledger_commit=H0`.
