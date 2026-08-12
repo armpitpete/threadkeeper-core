@@ -172,12 +172,12 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	}
 	if err := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit); err != nil {
 		if errors.Is(err, gitledger.ErrStaleState) {
-			afterRace, replayErr := Replay(ctx, r)
-			if replayErr == nil {
-				raced, lookupErr := findAcceptedIdempotencyAt(ctx, r, afterRace.LedgerCommit, candidate.IdempotencyKey)
-				if lookupErr == nil && raced != nil && raced.Entry.ContentSHA256 == candidate.ContentSHA256 && raced.Document.EventID == candidate.EventID {
-					return responseFromAccepted(WriteStatusAlreadyAccepted, afterRace.LedgerCommit, raced), nil
-				}
+			response, recoveryErr := recoverCandidateAfterStaleCAS(ctx, r, candidate)
+			if recoveryErr != nil {
+				return nil, recoveryErr
+			}
+			if response != nil {
+				return response, nil
 			}
 		}
 		return nil, err
@@ -195,6 +195,28 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 		return nil, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: accepted event identity not recoverable from ledger")
 	}
 	return responseFromAccepted(WriteStatusAccepted, post.LedgerCommit, accepted), nil
+}
+
+// recoverCandidateAfterStaleCAS replays the new exact head after a CAS race.
+// The winning request may have used the same idempotency key. Exact identity is
+// a durable retry; different identity is a durable idempotency conflict. Only a
+// new head with no such key remains an ordinary stale-state outcome.
+func recoverCandidateAfterStaleCAS(ctx context.Context, r *gitledger.Reader, candidate WriteCandidate) (*WriteResponse, error) {
+	afterRace, err := Replay(ctx, r)
+	if err != nil {
+		return nil, fmt.Errorf("STALE_STATE_RECOVERY_FAILED: replay current ledger: %w", err)
+	}
+	traced, err := findAcceptedIdempotencyAt(ctx, r, afterRace.LedgerCommit, candidate.IdempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("STALE_STATE_RECOVERY_FAILED: idempotency lookup: %w", err)
+	}
+	if traced == nil {
+		return nil, nil
+	}
+	if traced.Entry.ContentSHA256 != candidate.ContentSHA256 || traced.Document.EventID != candidate.EventID {
+		return nil, fmt.Errorf("%w: key %q is already bound to event %q digest %s", ErrIdempotencyConflict, candidate.IdempotencyKey, traced.Document.EventID, traced.Entry.ContentSHA256)
+	}
+	return responseFromAccepted(WriteStatusAlreadyAccepted, afterRace.LedgerCommit, traced), nil
 }
 
 func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate) error {
