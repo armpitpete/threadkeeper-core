@@ -19,7 +19,7 @@ Use a two-phase internal write model:
 
 Idempotency is reconstructed from accepted ledger events and checked against the same exact replay snapshot before stale-state rejection. Exact retries return the original accepting commit; conflicting reuse fails closed.
 
-Repository Git hooks are explicitly bypassed for write plumbing. The Git repository used as the authority boundary must also be self-contained: repository-local alternates, `commondir`, promisor/partial-clone lazy object retrieval and symlink redirection of critical ref/object/config paths are rejected. Durable semantic JSON is authoritative only when represented by canonical `100644 blob` tree entries.
+Repository Git hooks are explicitly bypassed for write plumbing. The Git repository used as the authority boundary must also be self-contained: repository-local alternates, `commondir`, promisor/partial-clone lazy object retrieval, alternate ref-storage backends, worktree-specific repository configuration, and symlink redirection of critical ref/object/config paths are rejected. Threadkeeper v1 accepts only Git's classic `files` ref backend and the primary repository `config` file. Durable semantic JSON is authoritative only when represented by canonical `100644 blob` tree entries.
 
 The public/service authority-write gate remains disabled.
 
@@ -33,7 +33,7 @@ It also gives clear crash boundaries:
 - after CAS: accepted whether or not a response was delivered;
 - retry: reconstruct result from ledger.
 
-The repository-isolation rules make the filesystem boundary and the Git boundary describe the same authority store. Core must not validate one directory while Git follows hidden repository metadata or filesystem indirection to another ref/object source.
+The repository-isolation rules make the filesystem boundary and the Git boundary describe the same authority store. Core must not validate one directory while Git follows hidden repository metadata, an alternate ref backend, an additional configuration store, or filesystem indirection to another ref/object source.
 
 ## Rejected alternatives
 
@@ -60,6 +60,10 @@ Rejected because hooks are opaque repository-local executable behavior and would
 ### Let Git redirect or fetch authority objects implicitly
 
 Rejected because alternates, common directories, promisor remotes, lazy fetches or symlinked authority stores make external repository state part of the acceptance decision without an explicit Threadkeeper authority contract.
+
+### Support multiple Git ref/config backends in v1
+
+Rejected because reftable/other ref backends and worktree-specific config add additional authority-storage/configuration surfaces without providing a v1 governance benefit. Supporting one explicit ref/config model is easier to audit and recover. A future backend change requires a reviewed migration/authority contract rather than implicit Git feature detection.
 
 ## Consequences
 
