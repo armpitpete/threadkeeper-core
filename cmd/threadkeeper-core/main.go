@@ -50,6 +50,8 @@ func main() {
 		err = validateCommand(os.Args[2:])
 	case "ledger-inspect":
 		err = ledgerInspectCommand(os.Args[2:])
+	case "ledger-recovery-proof":
+		err = ledgerRecoveryProofCommand(os.Args[2:])
 	case "authority-write":
 		err = service.RequireAuthorityWritesEnabled()
 	default:
@@ -63,7 +65,7 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: threadkeeper-core <version|check-json|canonicalize|digest|validate|ledger-inspect|authority-write> ...")
+	fmt.Fprintln(os.Stderr, "usage: threadkeeper-core <version|check-json|canonicalize|digest|validate|ledger-inspect|ledger-recovery-proof|authority-write> ...")
 }
 
 func printVersion() error {
@@ -112,22 +114,32 @@ func validateCommand(args []string) error {
 }
 
 func ledgerInspectCommand(args []string) error {
+	r, err := ledgerReaderFromArgs(args)
+	if err != nil { return err }
+	manifest, err := ledger.Replay(context.Background(), r)
+	if err != nil { return err }
+	return writeIndentedJSON(manifest)
+}
+
+func ledgerRecoveryProofCommand(args []string) error {
+	r, err := ledgerReaderFromArgs(args)
+	if err != nil { return err }
+	proof, err := ledger.ProveRecovery(context.Background(), r)
+	if err != nil { return err }
+	return writeIndentedJSON(proof)
+}
+
+func ledgerReaderFromArgs(args []string) (*gitledger.Reader, error) {
 	if len(args) < 1 || len(args) > 2 {
-		return fmt.Errorf("expected ledger git directory and optional authoritative ref")
+		return nil, fmt.Errorf("expected ledger git directory and optional authoritative ref")
 	}
 	ref := gitledger.DefaultRef
-	if len(args) == 2 {
-		ref = args[1]
-	}
-	r, err := gitledger.New(args[0], ref)
-	if err != nil {
-		return err
-	}
-	manifest, err := ledger.Replay(context.Background(), r)
-	if err != nil {
-		return err
-	}
+	if len(args) == 2 { ref = args[1] }
+	return gitledger.New(args[0], ref)
+}
+
+func writeIndentedJSON(value any) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
-	return enc.Encode(manifest)
+	return enc.Encode(value)
 }
