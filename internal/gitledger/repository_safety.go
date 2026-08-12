@@ -70,13 +70,32 @@ func rejectSymlinkedPathComponents(path string) error {
 	return nil
 }
 
-// checkRepositoryRootSafety repeats the root/ancestor proof before Git is
-// invoked and additionally requires the root to be the same filesystem object
-// that Reader pinned during construction. This rejects an ordinary directory
-// replacement at the same pathname, not merely symlink substitution.
-// Runtime service ownership/permissions are still required to prevent an
-// untrusted local process racing replacement between this check and exec.
+// holdRepositoryRoot keeps the original repository directory handle live for
+// an entire Git subprocess while proving that the configured pathname still
+// identifies that same filesystem object. Holding the handle is essential:
+// an os.FileInfo snapshot alone can be impersonated if the filesystem later
+// recycles the original device/inode pair for a replacement directory.
+func (r *Reader) holdRepositoryRoot() (func(), error) {
+	r.rootMu.RLock()
+	if err := r.checkRepositoryRootSafetyLocked(); err != nil {
+		r.rootMu.RUnlock()
+		return nil, err
+	}
+	return r.rootMu.RUnlock, nil
+}
+
+// checkRepositoryRootSafety performs the same live-handle identity proof for
+// non-Git filesystem validation paths.
 func (r *Reader) checkRepositoryRootSafety() error {
+	release, err := r.holdRepositoryRoot()
+	if err != nil {
+		return err
+	}
+	release()
+	return nil
+}
+
+func (r *Reader) checkRepositoryRootSafetyLocked() error {
 	canonical, err := canonicalLedgerRoot(r.gitDir)
 	if err != nil {
 		return err
@@ -84,11 +103,18 @@ func (r *Reader) checkRepositoryRootSafety() error {
 	if canonical != r.gitDir {
 		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger root changed after Reader construction: got %s want %s", canonical, r.gitDir)
 	}
+	if r.rootHandle == nil {
+		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger Reader is closed")
+	}
+	pinnedInfo, err := r.rootHandle.Stat()
+	if err != nil {
+		return fmt.Errorf("inspect pinned authoritative ledger root %q: %w", r.gitDir, err)
+	}
 	currentInfo, err := os.Lstat(r.gitDir)
 	if err != nil {
 		return fmt.Errorf("inspect current authoritative ledger root identity %q: %w", r.gitDir, err)
 	}
-	if r.rootInfo == nil || !os.SameFile(r.rootInfo, currentInfo) {
+	if !os.SameFile(pinnedInfo, currentInfo) {
 		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger filesystem identity changed after Reader construction: %s", r.gitDir)
 	}
 	return nil
