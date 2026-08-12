@@ -14,41 +14,52 @@ Implemented and exercised by conformance tests:
 - exclusive governed-record reducer and accepted reducer bindings;
 - internal candidate-write construction, exact-head Git compare-and-swap, durable idempotency and post-CAS replay verification;
 - adversarial repository-isolation regressions for alternates, `commondir`, partial clones/lazy fetch, symlinked authority stores, reftable/worktree config and non-regular JSON tree modes;
+- concurrent replay/write/idempotency/cancellation safety tests and explicit overload signalling;
 - explicit hard public/service gate: `AUTHORITY_WRITES_DISABLED`.
 
-## Assurance expansion implemented as primitives/contracts
+## Installed assurance/read capabilities
 
-- genesis trust-root validation;
-- explicit threat model;
-- source escrow preservation modes and content verification;
+- genesis trust-root validation plus legacy adoption contract;
+- explicit threat model and single-authority-effect rule;
+- content-addressed source escrow store plus preservation modes;
+- exact-version filesystem source adapter with digest and symlink/traversal protection;
+- stable source registry with immutable version identities;
+- acyclic provenance graph with exact source/version lineage;
+- typed relationship graph and durable conflict-set representation;
+- evidence catalog/envelope with authority separate from retrieval score;
 - bitemporal effective/knowledge time;
 - coverage/completeness and bounded absence claims;
 - confidentiality clearance and governed redaction tombstones;
-- decision alternatives, dissent and reopening conditions;
-- deterministic fork recovery classification;
+- proposal/review bundle with alternatives, dissent and reopening conditions and zero authority effect;
+- deterministic policy-impact simulation comparison;
+- deterministic recovery-fork classification;
+- destructive non-empty bare-ledger backup/restore proof comparing exact head, replay and projection digests;
 - private candidate quarantine storage primitive;
-- policy impact simulation comparison;
-- verified derived replay checkpoints;
+- verified derived replay checkpoint digests;
 - Ed25519 external witness signing/verification;
 - federated exact references with mandatory local authority disposition;
-- Core build provenance model and conformance artifact evidence;
-- single declared authority-effect vocabulary;
-- five-domain health model, incident lifecycle, key lifecycle and evidence envelope.
+- deterministic portable Core export/import with canonical round-trip validation;
+- Core build provenance model, module/SBOM evidence and conformance artifacts;
+- five-domain health model, incident lifecycle and key lifecycle;
+- read-only reference CLI for genesis, evidence, review bundles, health and recovery proof/compare.
 
-## Deliberately not yet enabled / still requiring integration
+## Deliberately not yet enabled / protected integration work
 
 - PR #11's current repaired CAS head still requires a fresh independent full Issue #9 PASS before merge;
 - public authority-write transport and actor authentication/authorisation remain disabled;
-- quarantine is not yet wired into Git candidate materialisation because that would change the CAS boundary before its independent acceptance;
-- source-adapter escrow backends and broad temporal/coverage schema migration are not yet installed;
-- checkpoint-accelerated replay has not replaced full replay; only checkpoint build/verification is installed;
+- quarantine is not yet wired into Git candidate materialisation because that would change the CAS boundary before independent acceptance;
+- broad existing durable event/config schemas have not yet been migrated to require temporal/coverage/confidentiality fields universally;
+- checkpoint-accelerated replay has not replaced full replay; checkpoint build/verification is installed as an optimisation boundary only;
 - external witness deployment/key service is optional and not configured;
-- recovery fork operator resolution and destructive secondary-backup restore drill remain to be proved;
-- federation transport and executable reference client are not yet built;
-- Recall/search/vector storage remains deliberately separate and unimplemented.
+- recovery-fork operator resolution and restore from an independently operated secondary backup location remain deployment gates;
+- federation transport is not configured;
+- Recall/search/vector storage remains deliberately separate and unimplemented;
+- repository `main` protection must be enabled in GitHub administration; the available automation connector does not expose that mutation.
+
+See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the exact sequence.
 
 ## Write status
 
 `AUTHORITY_WRITES_DISABLED`
 
-This remains true until the enlarged recovery, authentication/authorisation, deployment-ownership and load-safety gates are separately accepted.
+This remains true until the enlarged recovery, authentication/authorisation, deployment-ownership, quarantine-integration and final load-safety gates are separately accepted.
