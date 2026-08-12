@@ -228,6 +228,9 @@ func (r *Reader) verifySinglePathAddition(ctx context.Context, candidateCommit, 
 }
 
 func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []string, hooksDir string, args ...string) ([]byte, error) {
+	if err := r.checkRepositoryRootSafety(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir, "-c", "core.hooksPath=" + hooksDir, "-c", "commit.gpgSign=false"}
