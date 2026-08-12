@@ -38,5 +38,23 @@ jobs:
             echo "authority write unexpectedly enabled" >&2
             exit 1
           fi
+      - name: Build supply-chain evidence
+        run: |
+          BINARY_SHA=$(sha256sum threadkeeper-core | awk '{print $1}')
+          go version -m threadkeeper-core > build-modules.txt
+          go list -m -json all > module-sbom.json
+          SBOM_SHA=$(sha256sum module-sbom.json | awk '{print $1}')
+          GOVERSION=$(go env GOVERSION)
+          printf '{"version":"conformance","source_commit":"%s","go_version":"%s","platform":"linux/amd64","binary_sha256":"%s","sbom_sha256":"%s"}\n' "$GITHUB_SHA" "$GOVERSION" "$BINARY_SHA" "$SBOM_SHA" > build-provenance.json
+          cat build-provenance.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: threadkeeper-conformance-${{ github.sha }}
+          path: |
+            threadkeeper-core
+            build-provenance.json
+            build-modules.txt
+            module-sbom.json
+          retention-days: 14
       - name: Require committed module metadata
         run: git diff --exit-code -- go.mod go.sum

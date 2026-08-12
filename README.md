@@ -1,56 +1,46 @@
 # Threadkeeper Core
 
-Threadkeeper Core is independent project-memory and governance infrastructure.
+Threadkeeper Core is independent project-knowledge and governance infrastructure.
 
-Its purpose is to preserve **where project truth comes from, how it relates, what state it is in, and what evidence supports it** without making any AI model the owner of that truth.
+Its purpose is to preserve **what a project knows, what it has accepted, where that knowledge came from, what conflicts with it, how understanding changed through time, and enough durable evidence to reconstruct and challenge those conclusions without making an AI model the owner of project truth**.
 
-## Architectural invariant
+## Invariants
 
-> Removing or replacing every AI component must not destroy authoritative project information, change authority, or prevent Threadkeeper Core from operating and rebuilding its recall data.
+- removing every AI component must not destroy or change authority;
+- deleting Recall must not delete accepted truth, decisions or required provenance;
+- retrieval relevance never promotes evidential authority;
+- current state is a deterministic projection of preserved history;
+- protected writes fail closed on stale or ambiguous state;
+- preservation, integrity witnesses, checkpoints, simulation and federation do not become authority implicitly.
 
-A second invariant follows:
+## Current implementation
 
-> Deleting the Threadkeeper Recall store must not delete accepted project truth, human decisions, or the evidence needed to reconstruct them.
+Threadkeeper Core is implemented in Go with strict JSON validation, RFC 8785 canonicalisation, SHA-256 record identity, local-only JSON Schema, a hardened Git governance ledger, deterministic replay, reducer/policy bindings, and an internal exact-head candidate/CAS writer.
 
-## Current phase
+The internal writer remains behind the hard public gate:
 
-**Contract definition only. No implementation technology is selected by this repository state.**
+`AUTHORITY_WRITES_DISABLED`
 
-The first architecture package defines:
+The CAS repair lane is independently reviewed before merge/enablement. The assurance layer adds explicit genesis, threat boundaries, source escrow policy, bitemporal time, coverage/completeness, confidentiality/retention, dissent/reopening context, fork recovery, candidate quarantine primitives, policy simulation, replay checkpoints, external witness verification, federation, build provenance and operability models.
 
-- `ARCHITECTURE.md` — system boundary and conceptual planes;
-- `AUTHORITY_MODEL.md` — what may count as truth and how authority changes;
-- `STORAGE_MODEL.md` — durable, rebuildable and transient storage classes;
-- `INTERFACE_CONTRACT.md` — protocol-neutral client contract;
-- `THREADKEEPER_STANDARD.md` — numbered conformance requirements;
-- `docs/decisions/ADR-001-independent-from-ai.md` — the foundational architectural decision.
-
-## System boundary
+## Planes
 
 ```text
-Authoritative sources / authority sinks
+Authoritative sources / sinks
         │
-        │ immutable identity + provenance
         ▼
 Threadkeeper Core
-├── authority metadata
-├── provenance
-├── relationships
-├── state projections
-└── rebuildable recall
+├── exact identities + provenance
+├── authority policy + decisions
+├── conflict / temporal / coverage state
+├── deterministic projections
+├── recovery + integrity evidence
+└── federated references
         │
-        ▼
-protocol-neutral interface boundary
-        │
-        ├── humans
-        ├── CLI / tools
-        ├── ChatGPT / Codex
-        ├── local models
-        └── future agents
+        ├── Recall (disposable)
+        └── protocol-neutral clients / AI
 ```
 
-AI systems are clients. They may retrieve evidence, reason over it and submit proposals. They do not become authoritative merely because they are confident, useful, automated or repeatedly consulted.
+AI systems are clients. They may retrieve evidence, derive material and submit proposals. They receive no implicit privilege and cannot promote their own output to authority.
 
-## Implementation rule
-
-Implementation choices may begin only after the contract package is accepted. Storage engines, search engines, vector systems, API protocols, model providers and deployment topology are deliberately not selected here.
+See `ARCHITECTURE.md`, `THREADKEEPER_STANDARD.md`, `docs/assurance/CORE_ASSURANCE_PROGRAMME_V0.1.md`, `docs/conformance/`, and `docs/decisions/` for the normative architecture and gates.
