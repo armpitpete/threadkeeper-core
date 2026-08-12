@@ -58,7 +58,7 @@ func New(gitDir, ref string) (*Reader, error) {
 	return &Reader{gitPath: gitPath, gitDir: abs, ref: ref, timeout: 60 * time.Second}, nil
 }
 
-func (r *Reader) Ref() string { return r.ref }
+func (r *Reader) Ref() string    { return r.ref }
 func (r *Reader) GitDir() string { return r.gitDir }
 
 func (r *Reader) Head(ctx context.Context) (string, error) {
@@ -104,6 +104,13 @@ func (r *Reader) IsBare(ctx context.Context) (bool, error) {
 // an authority history or object namespace different from the repository's own
 // stored commit graph and object database.
 func (r *Reader) CheckHistorySafety(ctx context.Context) error {
+	// Repository-layout checks must run before invoking Git. A commondir file or
+	// symlinked authority store can otherwise make Git inspect a different
+	// repository than the filesystem metadata Threadkeeper is validating.
+	if err := r.checkRepositoryLayoutSafety(); err != nil {
+		return err
+	}
+
 	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
 	if err != nil {
 		return err
@@ -142,6 +149,9 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	}
 	if strings.Contains(lower, "[fsck") {
 		return fmt.Errorf("INTEGRITY_FAILURE: repository-local fsck overrides are forbidden")
+	}
+	if strings.Contains(lower, "promisor") || strings.Contains(lower, "partialclone") {
+		return fmt.Errorf("INTEGRITY_FAILURE: Git promisor/partial-clone repositories are forbidden in authoritative ledger")
 	}
 	return nil
 }
@@ -222,6 +232,9 @@ func (r *Reader) EventAdditions(ctx context.Context, commit string) ([]EventAddi
 		if !strings.HasSuffix(path, ".json") {
 			return nil, fmt.Errorf("INTEGRITY_FAILURE: durable event file %q is not JSON", path)
 		}
+		if err := r.requireRegularBlobAt(ctx, commit, path); err != nil {
+			return nil, err
+		}
 		additions = append(additions, EventAddition{Commit: strings.ToLower(commit), Path: path})
 	}
 	sort.Slice(additions, func(i, j int) bool { return additions[i].Path < additions[j].Path })
@@ -244,6 +257,9 @@ func (r *Reader) ListJSON(ctx context.Context, commit, prefix string) ([]string,
 		}
 		path := string(p)
 		if strings.HasSuffix(path, ".json") {
+			if err := r.requireRegularBlobAt(ctx, commit, path); err != nil {
+				return nil, err
+			}
 			paths = append(paths, path)
 		}
 	}
@@ -291,13 +307,13 @@ func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
 func controlledEnv() []string {
 	blocked := []string{
 		"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=", "GIT_ALTERNATE_OBJECT_DIRECTORIES=",
-		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_CONFIG_COUNT=",
+		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_CONFIG_COUNT=",
 		"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_CONFIG_PARAMETERS=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_SHALLOW_FILE=",
 		"GIT_GRAFT_FILE=", "GIT_EXEC_PATH=", "GIT_TEMPLATE_DIR=", "GIT_SSH=", "GIT_SSH_COMMAND=", "GIT_ASKPASS=", "SSH_ASKPASS=",
 		"GIT_TERMINAL_PROMPT=", "GIT_PAGER=", "PAGER=", "GIT_EDITOR=", "GIT_SEQUENCE_EDITOR=", "GIT_LITERAL_PATHSPECS=",
-		"GIT_GLOB_PATHSPECS=", "GIT_NOGLOB_PATHSPECS=", "GIT_ICASE_PATHSPECS=", "GIT_ATTR_NOSYSTEM=", "LC_ALL=", "LANG=",
+		"GIT_GLOB_PATHSPECS=", "GIT_NOGLOB_PATHSPECS=", "GIT_ICASE_PATHSPECS=", "GIT_ATTR_NOSYSTEM=", "GIT_NO_LAZY_FETCH=", "LC_ALL=", "LANG=",
 	}
-	env := make([]string, 0, len(os.Environ())+10)
+	env := make([]string, 0, len(os.Environ())+11)
 	for _, item := range os.Environ() {
 		blockedItem := false
 		for _, prefix := range blocked {
@@ -319,6 +335,7 @@ func controlledEnv() []string {
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_NO_REPLACE_OBJECTS=1",
 		"GIT_ATTR_NOSYSTEM=1",
+		"GIT_NO_LAZY_FETCH=1",
 		"LC_ALL=C",
 		"LANG=C",
 	)

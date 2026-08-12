@@ -17,9 +17,11 @@ Use a two-phase internal write model:
 1. validate a fully formed event against exact H0 and create an unreachable single-event candidate commit H1;
 2. accept H1 only through atomic `update-ref <ref> H1 H0` compare-and-swap.
 
-Idempotency is reconstructed from accepted ledger events and checked before stale-state rejection. Exact retries return the original accepting commit; conflicting reuse fails closed.
+Idempotency is reconstructed from accepted ledger events and checked against the same exact replay snapshot before stale-state rejection. Exact retries return the original accepting commit; conflicting reuse fails closed.
 
-Repository Git hooks are explicitly bypassed for write plumbing. The public/service authority-write gate remains disabled.
+Repository Git hooks are explicitly bypassed for write plumbing. The Git repository used as the authority boundary must also be self-contained: repository-local alternates, `commondir`, promisor/partial-clone lazy object retrieval and symlink redirection of critical ref/object/config paths are rejected. Durable semantic JSON is authoritative only when represented by canonical `100644 blob` tree entries.
+
+The public/service authority-write gate remains disabled.
 
 ## Why
 
@@ -30,6 +32,8 @@ It also gives clear crash boundaries:
 - before CAS: no authority change;
 - after CAS: accepted whether or not a response was delivered;
 - retry: reconstruct result from ledger.
+
+The repository-isolation rules make the filesystem boundary and the Git boundary describe the same authority store. Core must not validate one directory while Git follows hidden repository metadata or filesystem indirection to another ref/object source.
 
 ## Rejected alternatives
 
@@ -53,6 +57,10 @@ Rejected because rebuilding `prior_state`, `resulting_state`, policy identity or
 
 Rejected because hooks are opaque repository-local executable behavior and would create a second, poorly inspectable authority mechanism.
 
+### Let Git redirect or fetch authority objects implicitly
+
+Rejected because alternates, common directories, promisor remotes, lazy fetches or symlinked authority stores make external repository state part of the acceptance decision without an explicit Threadkeeper authority contract.
+
 ## Consequences
 
-The codebase now contains internal ref-mutating primitives, so testing and access boundaries become more important. Their presence does not by itself authorise callers to use them. External enablement requires a later reviewed service/authentication contract and explicit protected acceptance.
+The codebase now contains internal ref-mutating primitives, so testing and access boundaries become more important. Their presence does not by itself authorise callers to use them. External enablement requires a later reviewed service/authentication contract, service-owned/non-writable ledger storage, and explicit protected acceptance.

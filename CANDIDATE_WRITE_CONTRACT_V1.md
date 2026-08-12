@@ -106,13 +106,19 @@ Implementation rules:
 - the event path must not already exist at H0;
 - the candidate commit must have exactly one parent, H0;
 - the candidate tree must differ from H0 only by the intended event addition;
+- the durable event tree entry must be exactly a `100644 blob`; executable and symlink modes are invalid authority;
 - repository Git hooks must not execute;
 - commit signing/configuration must not be inherited implicitly;
 - ambient Git namespaces, replacement refs, alternate index paths and other previously forbidden environment state remain isolated;
 - repository-local object alternates are forbidden: neither `objects/info/alternates` nor `objects/info/http-alternates` may exist in the authoritative ledger;
+- Git `commondir` indirection is forbidden;
+- promisor/partial-clone configuration and lazy object fetching are forbidden;
+- critical Git authority/storage paths must not be symlinks, including `HEAD`, `config`, packed refs, and the `objects` and `refs` trees;
 - repository safety must be rechecked at candidate verification and again immediately before authoritative CAS.
 
-The authoritative Git repository's own object database is part of the durability boundary. Candidate validation must not be allowed to resolve H1, its tree, or its event blob from a repository-local alternate object database.
+The authoritative Git repository's own object database is part of the durability boundary. Candidate validation must not resolve H1, its tree, or its event blob from an alternate object database, common Git directory, promisor remote, partial clone or symlink-redirected object store. Controlled Git invocations must disable lazy fetching as defence in depth.
+
+The regular-blob rule also applies during replay to durable event JSON and versioned schema/reducer-binding JSON. A history whose semantic JSON is stored with executable, symlink or other non-`100644` tree modes is an integrity failure.
 
 Git objects created during prepare are not authority. If the process dies before ref advancement, they may remain unreachable and later be garbage-collected.
 
@@ -129,7 +135,7 @@ A prepared candidate exposes:
 
 Git commit identity is not the logical event identity. The event ID and SHA-256 remain stable across future Git hash migrations.
 
-A candidate handle is **untrusted input at acceptance time**. Immediately before CAS, Core must independently re-read the candidate commit and verify its exact parent, sole event-path addition, canonical event bytes, event ID, idempotency key, content digest, historical schema/binding and reducer transition against H0. A caller cannot gain authority by substituting a different commit or path into a previously prepared handle.
+A candidate handle is **untrusted input at acceptance time**. Immediately before CAS, Core must independently re-read the candidate commit and verify its exact parent, sole event-path addition, regular-blob tree mode, canonical event bytes, event ID, idempotency key, content digest, historical schema/binding and reducer transition against H0. A caller cannot gain authority by substituting a different commit, path or tree mode into a previously prepared handle.
 
 ## 8. Exact-head compare-and-swap
 
@@ -139,7 +145,7 @@ Acceptance requires all of the following immediately before ref advancement:
 2. candidate H1 exists and is a commit;
 3. H1 has exactly one parent and that parent is H0;
 4. the request has not already been accepted under its idempotency key in the exact current snapshot;
-5. the authoritative repository contains no forbidden object-alternate metadata;
+5. the candidate event entry is a `100644 blob` and the authoritative repository contains no forbidden object-store or repository-layout indirection;
 6. repository safety has been rechecked after candidate validation and as close as practicable to the ref operation.
 
 Core then performs the equivalent of:
@@ -198,9 +204,11 @@ Candidate construction and authoritative ref CAS must override `core.hooksPath` 
 
 Repository-local Git object alternates are also not Threadkeeper authority policy. `objects/info/alternates` and `objects/info/http-alternates` are integrity failures for the authoritative ledger.
 
+An authoritative ledger is a single self-contained Git directory for the purposes of Threadkeeper authority. `commondir`, promisor/partial-clone object retrieval, lazy fetches, and symlink redirection of critical ref/object/config metadata are integrity failures. Threadkeeper must validate the same repository layout that Git will use, rather than validating a façade while Git follows repository-local indirection elsewhere.
+
 Static metadata checks cannot by themselves defend against an unrelated process that can rewrite the ledger filesystem between a safety check and `update-ref`. Therefore any later enabled service deployment must make the durable ledger directory service-owned and non-writable by untrusted users/processes. That OS-level ownership/permission proof is a deployment gate, not permission to weaken the repository checks above.
 
-If future governance intentionally wants an external co-signing or object-storage mechanism, it must be represented explicitly in the authority contract rather than smuggled in as a Git hook or alternate object database.
+If future governance intentionally wants an external co-signing, shared-object, promisor or alternate storage mechanism, it must be represented explicitly in the authority contract rather than smuggled in as Git repository state.
 
 ## 13. Public write gate remains closed
 
