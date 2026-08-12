@@ -66,6 +66,10 @@ func TestReplayRejectsAlternateRefAndWorktreeConfigStores(t *testing.T) {
 
 	t.Run("refstorage extension", func(t *testing.T) {
 		r, _ := candidateTestReader(t)
+		// Extension keys are valid only for repository format version 1. Make the
+		// fixture valid Git config so the rejection is Threadkeeper's, not Git's
+		// malformed-repository guard.
+		runGitInDirWithEnv(t, r.GitDir(), nil, nil, "config", "core.repositoryformatversion", "1")
 		configPath := filepath.Join(r.GitDir(), "config")
 		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
 		if err != nil {
@@ -97,6 +101,7 @@ func TestReplayRejectsAlternateRefAndWorktreeConfigStores(t *testing.T) {
 
 	t.Run("worktreeconfig extension", func(t *testing.T) {
 		r, _ := candidateTestReader(t)
+		runGitInDirWithEnv(t, r.GitDir(), nil, nil, "config", "core.repositoryformatversion", "1")
 		configPath := filepath.Join(r.GitDir(), "config")
 		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
 		if err != nil {
