@@ -18,10 +18,11 @@ const DefaultRef = "refs/heads/main"
 var ErrNonLinearHistory = errors.New("INTEGRITY_FAILURE: authoritative ledger history is not linear")
 
 type Reader struct {
-	gitPath string
-	gitDir  string
-	ref     string
-	timeout time.Duration
+	gitPath  string
+	gitDir   string
+	rootInfo os.FileInfo
+	ref      string
+	timeout  time.Duration
 }
 
 type Commit struct {
@@ -42,6 +43,13 @@ func New(gitDir, ref string) (*Reader, error) {
 	if err != nil {
 		return nil, err
 	}
+	rootInfo, err := os.Lstat(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("pin ledger root identity %q: %w", canonical, err)
+	}
+	if !rootInfo.IsDir() {
+		return nil, fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger Git root is not a directory: %s", canonical)
+	}
 	if _, err := os.Lstat(filepath.Join(canonical, "HEAD")); err != nil {
 		return nil, fmt.Errorf("open ledger %q: %w", canonical, err)
 	}
@@ -55,13 +63,20 @@ func New(gitDir, ref string) (*Reader, error) {
 	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid authoritative ref %q", ref)
 	}
-	return &Reader{gitPath: gitPath, gitDir: canonical, ref: ref, timeout: 60 * time.Second}, nil
+	r := &Reader{gitPath: gitPath, gitDir: canonical, rootInfo: rootInfo, ref: ref, timeout: 60 * time.Second}
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func (r *Reader) Ref() string    { return r.ref }
 func (r *Reader) GitDir() string { return r.gitDir }
 
 func (r *Reader) Head(ctx context.Context) (string, error) {
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		return "", err
+	}
 	out, err := r.run(ctx, "rev-parse", "--verify", r.ref+"^{commit}")
 	if err != nil {
 		return "", err
@@ -108,6 +123,9 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	// alternate ref/config store can otherwise make Git inspect a different
 	// repository surface than the filesystem metadata Threadkeeper validates.
 	if err := r.checkRepositoryLayoutSafety(); err != nil {
+		return err
+	}
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
 		return err
 	}
 
