@@ -120,6 +120,11 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect graft metadata: %w", err)
 	}
+	if _, err := os.Lstat(filepath.Join(r.gitDir, "objects", "info", "alternates")); err == nil {
+		return fmt.Errorf("INTEGRITY_FAILURE: repository-local Git alternates are forbidden in authoritative ledger")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("inspect alternate-object metadata: %w", err)
+	}
 	config, err := os.ReadFile(filepath.Join(r.gitDir, "config"))
 	if err != nil {
 		return fmt.Errorf("read ledger Git config: %w", err)
