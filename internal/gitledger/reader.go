@@ -105,8 +105,8 @@ func (r *Reader) IsBare(ctx context.Context) (bool, error) {
 // stored commit graph and object database.
 func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	// Repository-layout checks must run before invoking Git. A commondir file or
-	// symlinked authority store can otherwise make Git inspect a different
-	// repository than the filesystem metadata Threadkeeper is validating.
+	// alternate ref/config store can otherwise make Git inspect a different
+	// repository surface than the filesystem metadata Threadkeeper validates.
 	if err := r.checkRepositoryLayoutSafety(); err != nil {
 		return err
 	}
@@ -152,6 +152,12 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	}
 	if strings.Contains(lower, "promisor") || strings.Contains(lower, "partialclone") {
 		return fmt.Errorf("INTEGRITY_FAILURE: Git promisor/partial-clone repositories are forbidden in authoritative ledger")
+	}
+	if strings.Contains(lower, "refstorage") {
+		return fmt.Errorf("INTEGRITY_FAILURE: alternate Git ref-storage backends are forbidden; authoritative ledger v1 requires the files backend")
+	}
+	if strings.Contains(lower, "worktreeconfig") {
+		return fmt.Errorf("INTEGRITY_FAILURE: worktree-specific Git configuration is forbidden in authoritative ledger")
 	}
 	return nil
 }
