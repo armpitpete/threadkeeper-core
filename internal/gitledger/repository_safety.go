@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -70,9 +71,11 @@ func rejectSymlinkedPathComponents(path string) error {
 }
 
 // checkRepositoryRootSafety repeats the root/ancestor proof before Git is
-// invoked. Runtime service ownership/permissions are still required to prevent
-// an untrusted local process racing filesystem replacement between this check
-// and exec; that is an explicit deployment boundary rather than hidden trust.
+// invoked and additionally requires the root to be the same filesystem object
+// that Reader pinned during construction. This rejects an ordinary directory
+// replacement at the same pathname, not merely symlink substitution.
+// Runtime service ownership/permissions are still required to prevent an
+// untrusted local process racing replacement between this check and exec.
 func (r *Reader) checkRepositoryRootSafety() error {
 	canonical, err := canonicalLedgerRoot(r.gitDir)
 	if err != nil {
@@ -80,6 +83,58 @@ func (r *Reader) checkRepositoryRootSafety() error {
 	}
 	if canonical != r.gitDir {
 		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger root changed after Reader construction: got %s want %s", canonical, r.gitDir)
+	}
+	currentInfo, err := os.Lstat(r.gitDir)
+	if err != nil {
+		return fmt.Errorf("inspect current authoritative ledger root identity %q: %w", r.gitDir, err)
+	}
+	if r.rootInfo == nil || !os.SameFile(r.rootInfo, currentInfo) {
+		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger filesystem identity changed after Reader construction: %s", r.gitDir)
+	}
+	return nil
+}
+
+// checkAuthoritativeRefSafety requires the configured authority ref itself to
+// be direct. Git symbolic refs are ordinary files whose "ref: ..." content
+// causes update-ref to dereference to another ref by default; that indirection
+// is not an accepted authority mechanism in v1.
+func (r *Reader) checkAuthoritativeRefSafety() error {
+	if err := r.checkRepositoryRootSafety(); err != nil {
+		return err
+	}
+	if !strings.HasPrefix(r.ref, "refs/") || path.Clean(r.ref) != r.ref || strings.Contains(r.ref, "\\") || strings.ContainsAny(r.ref, "\x00\r\n") {
+		return fmt.Errorf("INTEGRITY_FAILURE: invalid authoritative ref path %q", r.ref)
+	}
+	for _, part := range strings.Split(r.ref, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("INTEGRITY_FAILURE: invalid authoritative ref path %q", r.ref)
+		}
+	}
+	full := filepath.Join(r.gitDir, filepath.FromSlash(r.ref))
+	info, err := os.Lstat(full)
+	if errors.Is(err, os.ErrNotExist) {
+		// Under the v1 files backend a missing loose ref may be represented as a
+		// direct packed ref. Symbolic refs require a loose ref file, so absence
+		// here is not itself an integrity failure; Head() will still require the
+		// configured ref to resolve to a commit.
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect authoritative ref %s: %w", r.ref, err)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ref must be a regular direct ref: %s", r.ref)
+	}
+	raw, err := os.ReadFile(full)
+	if err != nil {
+		return fmt.Errorf("read authoritative ref %s: %w", r.ref, err)
+	}
+	value := strings.TrimSpace(string(raw))
+	if strings.HasPrefix(value, "ref:") {
+		return fmt.Errorf("INTEGRITY_FAILURE: symbolic authoritative refs are forbidden in authoritative ledger: %s -> %s", r.ref, strings.TrimSpace(strings.TrimPrefix(value, "ref:")))
+	}
+	if !isObjectID(value) {
+		return fmt.Errorf("INTEGRITY_FAILURE: malformed loose authoritative ref %s", r.ref)
 	}
 	return nil
 }
