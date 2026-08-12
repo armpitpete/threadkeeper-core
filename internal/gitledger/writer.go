@@ -177,7 +177,11 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 		return fmt.Errorf("create empty hooks directory: %w", err)
 	}
 	defer os.RemoveAll(hooksDir)
-	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", r.ref, candidateCommit, expectedHead); err != nil {
+	// --no-deref makes the CAS target the configured ref object itself. A
+	// symbolic ref introduced by a filesystem race therefore cannot redirect
+	// mutation to its target; static symbolic refs are rejected before this
+	// point by checkAuthoritativeRefSafety.
+	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead); err != nil {
 		now, headErr := r.Head(ctx)
 		if headErr == nil && now != expectedHead {
 			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
@@ -283,7 +287,6 @@ func validateEventPath(p string) error {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
 				return fmt.Errorf("invalid durable event path %q", p)
 			}
-		}
 	}
 	return nil
 }
