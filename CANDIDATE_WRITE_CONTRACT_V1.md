@@ -113,10 +113,12 @@ Implementation rules:
 - repository-local object alternates are forbidden: neither `objects/info/alternates` nor `objects/info/http-alternates` may exist in the authoritative ledger;
 - Git `commondir` indirection is forbidden;
 - promisor/partial-clone configuration and lazy object fetching are forbidden;
+- the v1 authoritative ref backend is Git's classic `files` backend; reftable and other alternate ref-storage backends are forbidden;
+- worktree-specific repository configuration (`extensions.worktreeConfig` / `config.worktree`) is forbidden;
 - critical Git authority/storage paths must not be symlinks, including `HEAD`, `config`, packed refs, and the `objects` and `refs` trees;
 - repository safety must be rechecked at candidate verification and again immediately before authoritative CAS.
 
-The authoritative Git repository's own object database is part of the durability boundary. Candidate validation must not resolve H1, its tree, or its event blob from an alternate object database, common Git directory, promisor remote, partial clone or symlink-redirected object store. Controlled Git invocations must disable lazy fetching as defence in depth.
+The authoritative Git repository's own object database and classic files ref store are part of the durability boundary. Candidate validation must not resolve H1, its tree, its event blob, or the authoritative ref from an alternate object database, common Git directory, promisor remote, partial clone, reftable store, worktree-specific config surface or symlink-redirected authority store. Controlled Git invocations must disable lazy fetching as defence in depth.
 
 The regular-blob rule also applies during replay to durable event JSON and versioned schema/reducer-binding JSON. A history whose semantic JSON is stored with executable, symlink or other non-`100644` tree modes is an integrity failure.
 
@@ -145,7 +147,7 @@ Acceptance requires all of the following immediately before ref advancement:
 2. candidate H1 exists and is a commit;
 3. H1 has exactly one parent and that parent is H0;
 4. the request has not already been accepted under its idempotency key in the exact current snapshot;
-5. the candidate event entry is a `100644 blob` and the authoritative repository contains no forbidden object-store or repository-layout indirection;
+5. the candidate event entry is a `100644 blob` and the authoritative repository contains no forbidden object-store, ref-store, config-store or repository-layout indirection;
 6. repository safety has been rechecked after candidate validation and as close as practicable to the ref operation.
 
 Core then performs the equivalent of:
@@ -204,11 +206,11 @@ Candidate construction and authoritative ref CAS must override `core.hooksPath` 
 
 Repository-local Git object alternates are also not Threadkeeper authority policy. `objects/info/alternates` and `objects/info/http-alternates` are integrity failures for the authoritative ledger.
 
-An authoritative ledger is a single self-contained Git directory for the purposes of Threadkeeper authority. `commondir`, promisor/partial-clone object retrieval, lazy fetches, and symlink redirection of critical ref/object/config metadata are integrity failures. Threadkeeper must validate the same repository layout that Git will use, rather than validating a façade while Git follows repository-local indirection elsewhere.
+An authoritative v1 ledger is one self-contained Git directory using one repository config file and Git's classic `files` ref backend. `commondir`, `config.worktree`, `extensions.worktreeConfig`, reftable/alternate ref backends, promisor/partial-clone object retrieval, lazy fetches, and symlink redirection of critical ref/object/config metadata are integrity failures. Threadkeeper must validate the same repository layout that Git will use, rather than validating a façade while Git follows repository-local indirection elsewhere.
 
 Static metadata checks cannot by themselves defend against an unrelated process that can rewrite the ledger filesystem between a safety check and `update-ref`. Therefore any later enabled service deployment must make the durable ledger directory service-owned and non-writable by untrusted users/processes. That OS-level ownership/permission proof is a deployment gate, not permission to weaken the repository checks above.
 
-If future governance intentionally wants an external co-signing, shared-object, promisor or alternate storage mechanism, it must be represented explicitly in the authority contract rather than smuggled in as Git repository state.
+If future governance intentionally wants an external co-signing, shared-object, alternate ref-storage, promisor or alternate object-storage mechanism, it must be represented explicitly in a new authority contract rather than smuggled in as Git repository state.
 
 ## 13. Public write gate remains closed
 
