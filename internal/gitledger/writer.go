@@ -287,6 +287,7 @@ func validateEventPath(p string) error {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
 				return fmt.Errorf("invalid durable event path %q", p)
 			}
+		}
 	}
 	return nil
 }
