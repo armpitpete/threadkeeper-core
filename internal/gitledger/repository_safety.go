@@ -11,10 +11,87 @@ import (
 	"strings"
 )
 
+// canonicalLedgerRoot establishes the v1 filesystem boundary for a ledger.
+// The supplied Git directory and every ancestor used to reach it must be real
+// directories, not symlinks. After that check EvalSymlinks is used as a second
+// proof that the path resolves to itself; the returned path is the only path
+// retained by Reader and subsequently passed to Git.
+func canonicalLedgerRoot(gitDir string) (string, error) {
+	abs, err := filepath.Abs(gitDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve ledger path: %w", err)
+	}
+	abs = filepath.Clean(abs)
+	if err := rejectSymlinkedPathComponents(abs); err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", fmt.Errorf("resolve canonical ledger path %q: %w", abs, err)
+	}
+	resolved, err = filepath.Abs(resolved)
+	if err != nil {
+		return "", fmt.Errorf("resolve canonical ledger path %q: %w", abs, err)
+	}
+	resolved = filepath.Clean(resolved)
+	if resolved != abs {
+		return "", fmt.Errorf("INTEGRITY_FAILURE: symlinked Git repository root or ancestor is forbidden in authoritative ledger: %s resolves to %s", abs, resolved)
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return "", fmt.Errorf("inspect ledger root %q: %w", abs, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger Git root is not a directory: %s", abs)
+	}
+	return resolved, nil
+}
+
+// rejectSymlinkedPathComponents checks the final ledger root and every
+// filesystem ancestor. Lstat is deliberate: Stat would follow the exact
+// indirection this boundary must reject.
+func rejectSymlinkedPathComponents(path string) error {
+	current := filepath.Clean(path)
+	for {
+		info, err := os.Lstat(current)
+		if err != nil {
+			return fmt.Errorf("inspect authoritative ledger path component %q: %w", current, err)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("INTEGRITY_FAILURE: symlinked Git repository root or ancestor is forbidden in authoritative ledger: %s", current)
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+		current = parent
+	}
+	return nil
+}
+
+// checkRepositoryRootSafety repeats the root/ancestor proof before Git is
+// invoked. Runtime service ownership/permissions are still required to prevent
+// an untrusted local process racing filesystem replacement between this check
+// and exec; that is an explicit deployment boundary rather than hidden trust.
+func (r *Reader) checkRepositoryRootSafety() error {
+	canonical, err := canonicalLedgerRoot(r.gitDir)
+	if err != nil {
+		return err
+	}
+	if canonical != r.gitDir {
+		return fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger root changed after Reader construction: got %s want %s", canonical, r.gitDir)
+	}
+	return nil
+}
+
 // checkRepositoryLayoutSafety rejects repository-local filesystem indirection
 // that can make Git read or mutate authority outside r.gitDir. Runtime service
 // ownership/permissions remain necessary to close races after these checks.
 func (r *Reader) checkRepositoryLayoutSafety() error {
+	if err := r.checkRepositoryRootSafety(); err != nil {
+		return err
+	}
+
 	commonDir := filepath.Join(r.gitDir, "commondir")
 	if _, err := os.Lstat(commonDir); err == nil {
 		return fmt.Errorf("INTEGRITY_FAILURE: Git common-dir indirection is forbidden in authoritative ledger")
