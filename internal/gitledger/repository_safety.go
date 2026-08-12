@@ -22,6 +22,22 @@ func (r *Reader) checkRepositoryLayoutSafety() error {
 		return fmt.Errorf("inspect Git commondir metadata: %w", err)
 	}
 
+	// Threadkeeper v1 deliberately supports only the classic files ref backend
+	// and one repository config file. Reftable and config.worktree introduce
+	// additional ref/config stores that are unnecessary for the authority
+	// ledger and would otherwise expand the filesystem trust boundary.
+	for rel, reason := range map[string]string{
+		"config.worktree": "worktree-specific Git configuration is forbidden in authoritative ledger",
+		"reftable":        "Git reftable ref storage is unsupported in authoritative ledger v1",
+	} {
+		full := filepath.Join(r.gitDir, rel)
+		if _, err := os.Lstat(full); err == nil {
+			return fmt.Errorf("INTEGRITY_FAILURE: %s: %s", reason, rel)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect Git repository path %s: %w", rel, err)
+		}
+	}
+
 	for _, rel := range []string{"HEAD", "config", "packed-refs", "objects", "refs"} {
 		full := filepath.Join(r.gitDir, filepath.FromSlash(rel))
 		info, err := os.Lstat(full)
