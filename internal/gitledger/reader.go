@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,11 +20,12 @@ const DefaultRef = "refs/heads/main"
 var ErrNonLinearHistory = errors.New("INTEGRITY_FAILURE: authoritative ledger history is not linear")
 
 type Reader struct {
-	gitPath  string
-	gitDir   string
-	rootInfo os.FileInfo
-	ref      string
-	timeout  time.Duration
+	gitPath    string
+	gitDir     string
+	rootMu     sync.RWMutex
+	rootHandle *os.File
+	ref        string
+	timeout    time.Duration
 }
 
 type Commit struct {
@@ -43,31 +46,71 @@ func New(gitDir, ref string) (*Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	rootInfo, err := os.Lstat(canonical)
+	rootHandle, err := os.Open(canonical)
 	if err != nil {
-		return nil, fmt.Errorf("pin ledger root identity %q: %w", canonical, err)
+		return nil, fmt.Errorf("pin live ledger root %q: %w", canonical, err)
 	}
-	if !rootInfo.IsDir() {
+	pinnedInfo, err := rootHandle.Stat()
+	if err != nil {
+		rootHandle.Close()
+		return nil, fmt.Errorf("inspect pinned ledger root %q: %w", canonical, err)
+	}
+	if !pinnedInfo.IsDir() {
+		rootHandle.Close()
 		return nil, fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger Git root is not a directory: %s", canonical)
 	}
+	currentInfo, err := os.Lstat(canonical)
+	if err != nil {
+		rootHandle.Close()
+		return nil, fmt.Errorf("inspect current ledger root %q: %w", canonical, err)
+	}
+	if !os.SameFile(pinnedInfo, currentInfo) {
+		rootHandle.Close()
+		return nil, fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger root changed while it was being opened: %s", canonical)
+	}
 	if _, err := os.Lstat(filepath.Join(canonical, "HEAD")); err != nil {
+		rootHandle.Close()
 		return nil, fmt.Errorf("open ledger %q: %w", canonical, err)
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
+		rootHandle.Close()
 		return nil, fmt.Errorf("GIT_FAILURE: git executable not found: %w", err)
 	}
 	if ref == "" {
 		ref = DefaultRef
 	}
 	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
+		rootHandle.Close()
 		return nil, fmt.Errorf("invalid authoritative ref %q", ref)
 	}
-	r := &Reader{gitPath: gitPath, gitDir: canonical, rootInfo: rootInfo, ref: ref, timeout: 60 * time.Second}
+	r := &Reader{gitPath: gitPath, gitDir: canonical, rootHandle: rootHandle, ref: ref, timeout: 60 * time.Second}
 	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		r.Close()
 		return nil, err
 	}
+	runtime.SetFinalizer(r, func(reader *Reader) {
+		_ = reader.Close()
+	})
 	return r, nil
+}
+
+// Close releases the live repository-root handle used to pin filesystem
+// identity. A Reader must not be used after Close, and Close must not race an
+// operation that is already in progress.
+func (r *Reader) Close() error {
+	if r == nil {
+		return nil
+	}
+	runtime.SetFinalizer(r, nil)
+	r.rootMu.Lock()
+	defer r.rootMu.Unlock()
+	if r.rootHandle == nil {
+		return nil
+	}
+	err := r.rootHandle.Close()
+	r.rootHandle = nil
+	return err
 }
 
 func (r *Reader) Ref() string    { return r.ref }
@@ -303,9 +346,12 @@ func (r *Reader) ReadFile(ctx context.Context, commit, path string) ([]byte, err
 }
 
 func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
-	if err := r.checkRepositoryRootSafety(); err != nil {
+	releaseRoot, err := r.holdRepositoryRoot()
+	if err != nil {
 		return nil, err
 	}
+	defer releaseRoot()
+
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir}
