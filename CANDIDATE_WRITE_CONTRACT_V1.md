@@ -115,10 +115,11 @@ Implementation rules:
 - promisor/partial-clone configuration and lazy object fetching are forbidden;
 - the v1 authoritative ref backend is Git's classic `files` backend; reftable and other alternate ref-storage backends are forbidden;
 - worktree-specific repository configuration (`extensions.worktreeConfig` / `config.worktree`) is forbidden;
-- critical Git authority/storage paths must not be symlinks, including `HEAD`, `config`, packed refs, and the `objects` and `refs` trees;
-- repository safety must be rechecked at candidate verification and again immediately before authoritative CAS.
+- the supplied Git-directory root and every filesystem ancestor used to reach it must not be symlinks; the canonical resolved root is the only repository path retained by Core or passed to Git;
+- critical Git authority/storage paths inside that root must not be symlinks, including `HEAD`, `config`, packed refs, and the `objects` and `refs` trees;
+- repository-root safety must be rechecked before every Core Git invocation, with full repository safety rechecked at candidate verification and again immediately before authoritative CAS.
 
-The authoritative Git repository's own object database and classic files ref store are part of the durability boundary. Candidate validation must not resolve H1, its tree, its event blob, or the authoritative ref from an alternate object database, common Git directory, promisor remote, partial clone, reftable store, worktree-specific config surface or symlink-redirected authority store. Controlled Git invocations must disable lazy fetching as defence in depth.
+The authoritative Git repository's own object database and classic files ref store are part of the durability boundary. Candidate validation must not resolve H1, its tree, its event blob, or the authoritative ref from an alternate object database, common Git directory, promisor remote, partial clone, reftable store, worktree-specific config surface, symlinked repository root/ancestor or symlink-redirected authority store. Controlled Git invocations must disable lazy fetching as defence in depth.
 
 The regular-blob rule also applies during replay to durable event JSON and versioned schema/reducer-binding JSON. A history whose semantic JSON is stored with executable, symlink or other non-`100644` tree modes is an integrity failure.
 
@@ -147,7 +148,7 @@ Acceptance requires all of the following immediately before ref advancement:
 2. candidate H1 exists and is a commit;
 3. H1 has exactly one parent and that parent is H0;
 4. the request has not already been accepted under its idempotency key in the exact current snapshot;
-5. the candidate event entry is a `100644 blob` and the authoritative repository contains no forbidden object-store, ref-store, config-store or repository-layout indirection;
+5. the candidate event entry is a `100644 blob` and the authoritative repository contains no forbidden object-store, ref-store, config-store or repository-layout indirection, including root/ancestor symlinks;
 6. repository safety has been rechecked after candidate validation and as close as practicable to the ref operation.
 
 Core then performs the equivalent of:
@@ -206,7 +207,7 @@ Candidate construction and authoritative ref CAS must override `core.hooksPath` 
 
 Repository-local Git object alternates are also not Threadkeeper authority policy. `objects/info/alternates` and `objects/info/http-alternates` are integrity failures for the authoritative ledger.
 
-An authoritative v1 ledger is one self-contained Git directory using one repository config file and Git's classic `files` ref backend. `commondir`, `config.worktree`, `extensions.worktreeConfig`, reftable/alternate ref backends, promisor/partial-clone object retrieval, lazy fetches, and symlink redirection of critical ref/object/config metadata are integrity failures. Threadkeeper must validate the same repository layout that Git will use, rather than validating a façade while Git follows repository-local indirection elsewhere.
+An authoritative v1 ledger is one self-contained, canonically addressed Git directory using one repository config file and Git's classic `files` ref backend. The Git-directory root itself, and every ancestor component in the path Core uses to reach it, must be non-symlinked. Core must reject a symlink alias at construction and must repeat this root/ancestor check before each Git invocation so an already-created Reader cannot silently follow later filesystem indirection. `commondir`, `config.worktree`, `extensions.worktreeConfig`, reftable/alternate ref backends, promisor/partial-clone object retrieval, lazy fetches, and symlink redirection of critical ref/object/config metadata are also integrity failures. Threadkeeper must validate the same canonical repository layout that Git will use, rather than validating a façade while Git follows repository-local or filesystem indirection elsewhere.
 
 Static metadata checks cannot by themselves defend against an unrelated process that can rewrite the ledger filesystem between a safety check and `update-ref`. Therefore any later enabled service deployment must make the durable ledger directory service-owned and non-writable by untrusted users/processes. That OS-level ownership/permission proof is a deployment gate, not permission to weaken the repository checks above.
 
@@ -217,9 +218,3 @@ If future governance intentionally wants an external co-signing, shared-object, 
 The existence of internal CAS-capable code does not enable users, AI clients, or service callers to perform authority writes.
 
 `service.AuthorityWritesEnabled()` remains false and the executable `authority-write` command must continue to return `AUTHORITY_WRITES_DISABLED`.
-
-Enabling an external write path is a later protected decision requiring actor/authentication policy, destructive/crash testing, deployment permissions, and explicit owner acceptance.
-
-## 14. Next gate after this contract
-
-After this machinery is accepted, Threadkeeper must run an independent adversarial review of candidate construction and crash/stale/idempotency behavior before defining actor authentication and the first intentionally enabled write interface. A prior FAIL remains binding until the repaired exact head receives a fresh independent review.
