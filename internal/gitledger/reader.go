@@ -38,12 +38,12 @@ func New(gitDir, ref string) (*Reader, error) {
 	if gitDir == "" {
 		return nil, fmt.Errorf("ledger git directory is required")
 	}
-	abs, err := filepath.Abs(gitDir)
+	canonical, err := canonicalLedgerRoot(gitDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve ledger path: %w", err)
+		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(abs, "HEAD")); err != nil {
-		return nil, fmt.Errorf("open ledger %q: %w", abs, err)
+	if _, err := os.Lstat(filepath.Join(canonical, "HEAD")); err != nil {
+		return nil, fmt.Errorf("open ledger %q: %w", canonical, err)
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -55,7 +55,7 @@ func New(gitDir, ref string) (*Reader, error) {
 	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid authoritative ref %q", ref)
 	}
-	return &Reader{gitPath: gitPath, gitDir: abs, ref: ref, timeout: 60 * time.Second}, nil
+	return &Reader{gitPath: gitPath, gitDir: canonical, ref: ref, timeout: 60 * time.Second}, nil
 }
 
 func (r *Reader) Ref() string    { return r.ref }
@@ -285,6 +285,9 @@ func (r *Reader) ReadFile(ctx context.Context, commit, path string) ([]byte, err
 }
 
 func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
+	if err := r.checkRepositoryRootSafety(); err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir}
