@@ -110,6 +110,32 @@ func TestReplayRejectsDigestMismatch(t *testing.T) {
 	}
 }
 
+func TestReplayRejectsRepositoryLocalAlternates(t *testing.T) {
+	work := newWorkRepo(t)
+	writeSchema(t, work)
+	writeEvent(t, work, "events/decisions/001.json", "event-1", "decision.accepted", "target-a")
+	commitAll(t, work, "accept event")
+	bare := cloneBare(t, work)
+
+	alternate := filepath.Join(t.TempDir(), "alternate-objects")
+	if err := os.MkdirAll(alternate, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	alternatesPath := filepath.Join(bare, "objects", "info", "alternates")
+	if err := os.WriteFile(alternatesPath, []byte(alternate+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := gitledger.New(bare, gitledger.DefaultRef)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Replay(context.Background(), r)
+	if err == nil || !strings.Contains(err.Error(), "repository-local Git alternates are forbidden") {
+		t.Fatalf("expected repository-local alternates failure, got %v", err)
+	}
+}
+
 func TestFSCKDetectsMissingReachableObject(t *testing.T) {
 	work := newWorkRepo(t)
 	writeSchema(t, work)
