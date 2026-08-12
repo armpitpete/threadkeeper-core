@@ -45,6 +45,77 @@ func TestReplayRejectsGitCommonDirIndirection(t *testing.T) {
 	}
 }
 
+func TestReplayRejectsAlternateRefAndWorktreeConfigStores(t *testing.T) {
+	t.Run("reftable directory", func(t *testing.T) {
+		r, _ := candidateTestReader(t)
+		external := filepath.Join(t.TempDir(), "external-reftable")
+		if err := os.MkdirAll(external, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if runtime.GOOS == "windows" {
+			t.Skip("symlink fixture requires Unix-like symlink semantics")
+		}
+		if err := os.Symlink(external, filepath.Join(r.GitDir(), "reftable")); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Replay(context.Background(), r)
+		if err == nil || !strings.Contains(err.Error(), "reftable ref storage") {
+			t.Fatalf("expected reftable storage rejection, got %v", err)
+		}
+	})
+
+	t.Run("refstorage extension", func(t *testing.T) {
+		r, _ := candidateTestReader(t)
+		configPath := filepath.Join(r.GitDir(), "config")
+		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("\n[extensions]\n\trefStorage = reftable\n"); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, err = Replay(context.Background(), r)
+		if err == nil || !strings.Contains(err.Error(), "ref-storage backends") {
+			t.Fatalf("expected refstorage extension rejection, got %v", err)
+		}
+	})
+
+	t.Run("config.worktree file", func(t *testing.T) {
+		r, _ := candidateTestReader(t)
+		if err := os.WriteFile(filepath.Join(r.GitDir(), "config.worktree"), []byte("[core]\n\tbare = true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := Replay(context.Background(), r)
+		if err == nil || !strings.Contains(err.Error(), "worktree-specific Git configuration") {
+			t.Fatalf("expected config.worktree rejection, got %v", err)
+		}
+	})
+
+	t.Run("worktreeconfig extension", func(t *testing.T) {
+		r, _ := candidateTestReader(t)
+		configPath := filepath.Join(r.GitDir(), "config")
+		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.WriteString("\n[extensions]\n\tworktreeConfig = true\n"); err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		_, err = Replay(context.Background(), r)
+		if err == nil || !strings.Contains(err.Error(), "worktree-specific Git configuration") {
+			t.Fatalf("expected worktreeConfig extension rejection, got %v", err)
+		}
+	})
+}
+
 func TestReplayRejectsPromisorPartialCloneConfiguration(t *testing.T) {
 	r, _ := candidateTestReader(t)
 	configPath := filepath.Join(r.GitDir(), "config")
