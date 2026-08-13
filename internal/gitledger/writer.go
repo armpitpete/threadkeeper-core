@@ -39,6 +39,9 @@ func (r *Reader) PrepareEventCommit(ctx context.Context, expectedHead, eventPath
 	if eventID == "" || strings.ContainsAny(eventID, "\x00\r\n") {
 		return nil, fmt.Errorf("invalid event id")
 	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return nil, err
+	}
 
 	current, err := r.Head(ctx)
 	if err != nil {
@@ -130,6 +133,9 @@ func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candida
 	if err := validateEventPath(eventPath); err != nil {
 		return err
 	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
+	}
 	if err := r.verifyExactChild(ctx, strings.ToLower(expectedHead), strings.ToLower(candidateCommit)); err != nil {
 		return err
 	}
@@ -145,6 +151,9 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	}
 	expectedHead = strings.ToLower(expectedHead)
 	candidateCommit = strings.ToLower(candidateCommit)
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
+	}
 	if err := r.verifyExactChild(ctx, expectedHead, candidateCommit); err != nil {
 		return err
 	}
@@ -156,18 +165,31 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	if current != expectedHead {
 		return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, current)
 	}
+	// Recheck repository-local safety immediately before the authority-changing
+	// ref operation. The runtime deployment must additionally make the ledger
+	// directory service-owned so untrusted processes cannot race this check.
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return err
+	}
 
 	hooksDir, err := os.MkdirTemp("", "threadkeeper-no-hooks-*")
 	if err != nil {
 		return fmt.Errorf("create empty hooks directory: %w", err)
 	}
 	defer os.RemoveAll(hooksDir)
-	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", r.ref, candidateCommit, expectedHead); err != nil {
+	// --no-deref makes the CAS target the configured ref object itself. A
+	// symbolic ref introduced by a filesystem race therefore cannot redirect
+	// mutation to its target; static symbolic refs are rejected before this
+	// point by checkAuthoritativeRefSafety.
+	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead); err != nil {
 		now, headErr := r.Head(ctx)
 		if headErr == nil && now != expectedHead {
 			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
 		}
 		return err
+	}
+	if err := r.CheckHistorySafety(ctx); err != nil {
+		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: repository safety check: %w", err)
 	}
 	got, err := r.Head(ctx)
 	if err != nil {
@@ -210,6 +232,12 @@ func (r *Reader) verifySinglePathAddition(ctx context.Context, candidateCommit, 
 }
 
 func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []string, hooksDir string, args ...string) ([]byte, error) {
+	releaseRoot, err := r.holdRepositoryRoot()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseRoot()
+
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir, "-c", "core.hooksPath=" + hooksDir, "-c", "commit.gpgSign=false"}

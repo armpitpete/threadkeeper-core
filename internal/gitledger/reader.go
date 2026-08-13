@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -18,10 +20,12 @@ const DefaultRef = "refs/heads/main"
 var ErrNonLinearHistory = errors.New("INTEGRITY_FAILURE: authoritative ledger history is not linear")
 
 type Reader struct {
-	gitPath string
-	gitDir  string
-	ref     string
-	timeout time.Duration
+	gitPath    string
+	gitDir     string
+	rootMu     sync.RWMutex
+	rootHandle *os.File
+	ref        string
+	timeout    time.Duration
 }
 
 type Commit struct {
@@ -38,30 +42,84 @@ func New(gitDir, ref string) (*Reader, error) {
 	if gitDir == "" {
 		return nil, fmt.Errorf("ledger git directory is required")
 	}
-	abs, err := filepath.Abs(gitDir)
+	canonical, err := canonicalLedgerRoot(gitDir)
 	if err != nil {
-		return nil, fmt.Errorf("resolve ledger path: %w", err)
+		return nil, err
 	}
-	if _, err := os.Stat(filepath.Join(abs, "HEAD")); err != nil {
-		return nil, fmt.Errorf("open ledger %q: %w", abs, err)
+	rootHandle, err := os.Open(canonical)
+	if err != nil {
+		return nil, fmt.Errorf("pin live ledger root %q: %w", canonical, err)
+	}
+	pinnedInfo, err := rootHandle.Stat()
+	if err != nil {
+		rootHandle.Close()
+		return nil, fmt.Errorf("inspect pinned ledger root %q: %w", canonical, err)
+	}
+	if !pinnedInfo.IsDir() {
+		rootHandle.Close()
+		return nil, fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger Git root is not a directory: %s", canonical)
+	}
+	currentInfo, err := os.Lstat(canonical)
+	if err != nil {
+		rootHandle.Close()
+		return nil, fmt.Errorf("inspect current ledger root %q: %w", canonical, err)
+	}
+	if !os.SameFile(pinnedInfo, currentInfo) {
+		rootHandle.Close()
+		return nil, fmt.Errorf("INTEGRITY_FAILURE: authoritative ledger root changed while it was being opened: %s", canonical)
+	}
+	if _, err := os.Lstat(filepath.Join(canonical, "HEAD")); err != nil {
+		rootHandle.Close()
+		return nil, fmt.Errorf("open ledger %q: %w", canonical, err)
 	}
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
+		rootHandle.Close()
 		return nil, fmt.Errorf("GIT_FAILURE: git executable not found: %w", err)
 	}
 	if ref == "" {
 		ref = DefaultRef
 	}
 	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
+		rootHandle.Close()
 		return nil, fmt.Errorf("invalid authoritative ref %q", ref)
 	}
-	return &Reader{gitPath: gitPath, gitDir: abs, ref: ref, timeout: 60 * time.Second}, nil
+	r := &Reader{gitPath: gitPath, gitDir: canonical, rootHandle: rootHandle, ref: ref, timeout: 60 * time.Second}
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		r.Close()
+		return nil, err
+	}
+	runtime.SetFinalizer(r, func(reader *Reader) {
+		_ = reader.Close()
+	})
+	return r, nil
 }
 
-func (r *Reader) Ref() string { return r.ref }
+// Close releases the live repository-root handle used to pin filesystem
+// identity. A Reader must not be used after Close, and Close must not race an
+// operation that is already in progress.
+func (r *Reader) Close() error {
+	if r == nil {
+		return nil
+	}
+	runtime.SetFinalizer(r, nil)
+	r.rootMu.Lock()
+	defer r.rootMu.Unlock()
+	if r.rootHandle == nil {
+		return nil
+	}
+	err := r.rootHandle.Close()
+	r.rootHandle = nil
+	return err
+}
+
+func (r *Reader) Ref() string    { return r.ref }
 func (r *Reader) GitDir() string { return r.gitDir }
 
 func (r *Reader) Head(ctx context.Context) (string, error) {
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		return "", err
+	}
 	out, err := r.run(ctx, "rev-parse", "--verify", r.ref+"^{commit}")
 	if err != nil {
 		return "", err
@@ -101,8 +159,19 @@ func (r *Reader) IsBare(ctx context.Context) (bool, error) {
 }
 
 // CheckHistorySafety rejects repository features that can cause Git to present
-// an authority history different from the stored commit graph.
+// an authority history or object namespace different from the repository's own
+// stored commit graph and object database.
 func (r *Reader) CheckHistorySafety(ctx context.Context) error {
+	// Repository-layout checks must run before invoking Git. A commondir file or
+	// alternate ref/config store can otherwise make Git inspect a different
+	// repository surface than the filesystem metadata Threadkeeper validates.
+	if err := r.checkRepositoryLayoutSafety(); err != nil {
+		return err
+	}
+	if err := r.checkAuthoritativeRefSafety(); err != nil {
+		return err
+	}
+
 	out, err := r.run(ctx, "rev-parse", "--is-shallow-repository")
 	if err != nil {
 		return err
@@ -120,6 +189,17 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("inspect graft metadata: %w", err)
 	}
+	for _, rel := range []string{
+		filepath.Join("objects", "info", "alternates"),
+		filepath.Join("objects", "info", "http-alternates"),
+	} {
+		full := filepath.Join(r.gitDir, rel)
+		if _, err := os.Lstat(full); err == nil {
+			return fmt.Errorf("INTEGRITY_FAILURE: Git object alternates are forbidden in authoritative ledger: %s", filepath.ToSlash(rel))
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("inspect Git object alternates %s: %w", filepath.ToSlash(rel), err)
+		}
+	}
 	config, err := os.ReadFile(filepath.Join(r.gitDir, "config"))
 	if err != nil {
 		return fmt.Errorf("read ledger Git config: %w", err)
@@ -130,6 +210,15 @@ func (r *Reader) CheckHistorySafety(ctx context.Context) error {
 	}
 	if strings.Contains(lower, "[fsck") {
 		return fmt.Errorf("INTEGRITY_FAILURE: repository-local fsck overrides are forbidden")
+	}
+	if strings.Contains(lower, "promisor") || strings.Contains(lower, "partialclone") {
+		return fmt.Errorf("INTEGRITY_FAILURE: Git promisor/partial-clone repositories are forbidden in authoritative ledger")
+	}
+	if strings.Contains(lower, "refstorage") {
+		return fmt.Errorf("INTEGRITY_FAILURE: alternate Git ref-storage backends are forbidden; authoritative ledger v1 requires the files backend")
+	}
+	if strings.Contains(lower, "worktreeconfig") {
+		return fmt.Errorf("INTEGRITY_FAILURE: worktree-specific Git configuration is forbidden in authoritative ledger")
 	}
 	return nil
 }
@@ -210,6 +299,9 @@ func (r *Reader) EventAdditions(ctx context.Context, commit string) ([]EventAddi
 		if !strings.HasSuffix(path, ".json") {
 			return nil, fmt.Errorf("INTEGRITY_FAILURE: durable event file %q is not JSON", path)
 		}
+		if err := r.requireRegularBlobAt(ctx, commit, path); err != nil {
+			return nil, err
+		}
 		additions = append(additions, EventAddition{Commit: strings.ToLower(commit), Path: path})
 	}
 	sort.Slice(additions, func(i, j int) bool { return additions[i].Path < additions[j].Path })
@@ -232,6 +324,9 @@ func (r *Reader) ListJSON(ctx context.Context, commit, prefix string) ([]string,
 		}
 		path := string(p)
 		if strings.HasSuffix(path, ".json") {
+			if err := r.requireRegularBlobAt(ctx, commit, path); err != nil {
+				return nil, err
+			}
 			paths = append(paths, path)
 		}
 	}
@@ -251,6 +346,12 @@ func (r *Reader) ReadFile(ctx context.Context, commit, path string) ([]byte, err
 }
 
 func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
+	releaseRoot, err := r.holdRepositoryRoot()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseRoot()
+
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir}
@@ -276,40 +377,48 @@ func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// controlledEnv deliberately does not inherit the host Git environment.
+// Authority-path Git commands receive only values Core explicitly owns. This
+// closes both future ambient GIT_* mechanisms (including ref-backend selectors)
+// and case-variant environment bypasses on case-insensitive platforms.
 func controlledEnv() []string {
-	blocked := []string{
-		"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=", "GIT_ALTERNATE_OBJECT_DIRECTORIES=",
-		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_CONFIG_COUNT=",
-		"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_CONFIG_PARAMETERS=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_SHALLOW_FILE=",
-		"GIT_GRAFT_FILE=", "GIT_EXEC_PATH=", "GIT_TEMPLATE_DIR=", "GIT_SSH=", "GIT_SSH_COMMAND=", "GIT_ASKPASS=", "SSH_ASKPASS=",
-		"GIT_TERMINAL_PROMPT=", "GIT_PAGER=", "PAGER=", "GIT_EDITOR=", "GIT_SEQUENCE_EDITOR=", "GIT_LITERAL_PATHSPECS=",
-		"GIT_GLOB_PATHSPECS=", "GIT_NOGLOB_PATHSPECS=", "GIT_ICASE_PATHSPECS=", "GIT_ATTR_NOSYSTEM=", "LC_ALL=", "LANG=",
-	}
-	env := make([]string, 0, len(os.Environ())+10)
-	for _, item := range os.Environ() {
-		blockedItem := false
-		for _, prefix := range blocked {
-			if strings.HasPrefix(item, prefix) {
-				blockedItem = true
-				break
-			}
-		}
-		if !blockedItem {
-			env = append(env, item)
-		}
-	}
-	return append(env,
+	env := []string{
 		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_PAGER=cat",
 		"PAGER=cat",
 		"GIT_OPTIONAL_LOCKS=0",
 		"GIT_NO_REPLACE_OBJECTS=1",
 		"GIT_ATTR_NOSYSTEM=1",
+		"GIT_NO_LAZY_FETCH=1",
 		"LC_ALL=C",
 		"LANG=C",
-	)
+	}
+
+	// Go adds SYSTEMROOT automatically for Windows child processes when it is
+	// absent, but retain the two canonical OS-root variables explicitly when
+	// present so Git for Windows has the normal runtime boundary without
+	// inheriting arbitrary process state. Matching is case-insensitive because
+	// Windows environment variable names are case-insensitive.
+	if runtime.GOOS == "windows" {
+		for _, key := range []string{"SYSTEMROOT", "WINDIR"} {
+			if value, ok := lookupEnvFold(key); ok {
+				env = append(env, key+"="+value)
+			}
+		}
+	}
+	return env
+}
+
+func lookupEnvFold(want string) (string, bool) {
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(key, want) {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func isObjectID(s string) bool {
