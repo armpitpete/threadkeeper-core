@@ -32,7 +32,18 @@ type Bundle struct {
 
 func Encode(bundle Bundle)([]byte,error){normalized:=normalize(bundle);if err:=Validate(normalized);err!=nil{return nil,err};raw,err:=json.Marshal(normalized);if err!=nil{return nil,err};return canonicaljson.Canonicalize(raw)}
 
-func Decode(raw []byte)(Bundle,error){if err:=strictjson.Validate(raw);err!=nil{return Bundle{},err};canonical,err:=canonicaljson.Canonicalize(raw);if err!=nil{return Bundle{},err};if !bytes.Equal(raw,canonical){return Bundle{},fmt.Errorf("PORTABLE_INVALID: export must be RFC 8785 canonical JSON")};var bundle Bundle;if err:=json.Unmarshal(raw,&bundle);err!=nil{return Bundle{},err};if err:=Validate(bundle);err!=nil{return Bundle{},err};return bundle,nil}
+func Decode(raw []byte)(Bundle,error){
+	if err:=strictjson.Validate(raw);err!=nil{return Bundle{},err}
+	canonical,err:=canonicaljson.Canonicalize(raw);if err!=nil{return Bundle{},err}
+	if !bytes.Equal(raw,canonical){return Bundle{},fmt.Errorf("PORTABLE_INVALID: export must be RFC 8785 canonical JSON")}
+	var bundle Bundle
+	dec:=json.NewDecoder(bytes.NewReader(raw));dec.DisallowUnknownFields()
+	if err:=dec.Decode(&bundle);err!=nil{return Bundle{},fmt.Errorf("PORTABLE_INVALID: decode: %w",err)}
+	if err:=Validate(bundle);err!=nil{return Bundle{},err}
+	normalized,err:=Encode(bundle);if err!=nil{return Bundle{},err}
+	if !bytes.Equal(raw,normalized){return Bundle{},fmt.Errorf("PORTABLE_INVALID: export is not in deterministic normalized form")}
+	return bundle,nil
+}
 
 func Validate(bundle Bundle)error{
 	if bundle.Format!=FormatV1{return fmt.Errorf("PORTABLE_INVALID: format %q",bundle.Format)};if bundle.LedgerCommit==""||bundle.RecoveryProof.LedgerCommit!=bundle.LedgerCommit{return fmt.Errorf("PORTABLE_INVALID: ledger/recovery proof identity mismatch")}
