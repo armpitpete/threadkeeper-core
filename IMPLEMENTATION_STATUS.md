@@ -40,14 +40,14 @@ Implemented and exercised by conformance tests:
 - Ed25519 external witness signing/verification;
 - federated exact references with mandatory local authority disposition;
 - deterministic portable Core export/import with canonical round-trip validation;
-- Core build provenance model, module/SBOM evidence and conformance artifacts;
+- Core build-provenance model; CI artifact/SBOM packaging remains pending because the current repository automation boundary did not permit workflow mutation in this integration lane;
 - five-domain health model, incident lifecycle and key lifecycle;
 - read-only reference CLI for genesis, evidence, review bundles, health and recovery proof/compare.
 
 ## Integration and protected work
 
 - PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b`; an independent full Issue #9 PASS was **not** recorded before that merge. The exception is explicit and does not enable public authority writes;
-- before any public authority writer is enabled, the merged CAS boundary still requires fresh independent hostile review unless that deployment gate is separately and explicitly waived;
+- before any public authority writer is enabled, the merged CAS boundary still requires fresh independent hostile review;
 - public authority-write transport and actor authentication/authorisation remain disabled;
 - quarantine is not yet wired into Git candidate materialisation because that would change the CAS boundary and requires a separate review;
 - broad existing durable event/config schemas have not yet been migrated to require temporal/coverage/confidentiality fields universally;
@@ -64,4 +64,4 @@ See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the exact sequence.
 
 `AUTHORITY_WRITES_DISABLED`
 
-This remains true until the recovery, authentication/authorisation, deployment-ownership, quarantine-integration, CAS-review, load-safety and release-governance gates are separately accepted or explicitly waived by the owner.
+This remains true until the recovery, authentication/authorisation, deployment-ownership, quarantine-integration, CAS-review, load-safety and release-governance gates are separately accepted.
