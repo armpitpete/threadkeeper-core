@@ -17,7 +17,7 @@ This programme implements the whole-project review recommendations while disting
 | Decision dissent/reopening | `internal/decision`, `internal/proposal`, `internal/reviewbundle` | installed non-authoritative review path |
 | Fork recovery | `internal/recovery` | classifier installed; operator resolution pending |
 | Destructive restore proof | `internal/ledger/recovery_proof.go` + tests/CLI | installed; independent remote-backup drill pending |
-| Candidate quarantine | `internal/quarantine` | private store installed; writer integration waits for CAS acceptance |
+| Candidate quarantine | `internal/quarantine` | private store installed; writer integration remains a separate CAS-changing review gate |
 | Policy simulation | `internal/simulation` | deterministic impact comparison installed |
 | Replay checkpoints | `internal/checkpoint` | digest verification installed; replay acceleration optional/pending |
 | External witness | `internal/witness` | signing/verification installed; deployment/key service optional |
