@@ -23,7 +23,7 @@ This programme implements the whole-project review recommendations while disting
 | External witness | `internal/witness` | signing/verification installed; deployment/key service optional |
 | Federation | `internal/federation` | exact reference/local-authority rule installed; transport optional |
 | Portable export | `internal/portable` | deterministic canonical export/import installed |
-| Supply-chain integrity | `internal/buildprovenance` + CI artifacts | installed at conformance build level |
+| Supply-chain integrity | `internal/buildprovenance` | provenance model installed; CI artifact/SBOM packaging pending |
 | Single authority effect | `internal/authorityeffect` | installed vocabulary/contract |
 | Operability | `internal/health` + CLI | installed model/reference output; dashboard optional |
 | Incident response | `internal/incident` + runbook | installed lifecycle |
