@@ -22,19 +22,19 @@ type ForkCase struct {
 }
 
 type ResolutionCandidate struct {
-	CaseID             string `json:"case_id"`
-	SelectedHead       string `json:"selected_head"`
-	RejectedHead       string `json:"rejected_head"`
-	AuthorisedBy       string `json:"authorised_by"`
-	DecisionRef        string `json:"decision_ref"`
-	Reason             string `json:"reason"`
-	ResolvedAt         string `json:"resolved_at"`
-	RejectedPreserved  bool   `json:"rejected_preserved"`
+	CaseID            string `json:"case_id"`
+	SelectedHead      string `json:"selected_head"`
+	RejectedHead      string `json:"rejected_head"`
+	ActorID           string `json:"actor_id"`
+	DecisionRef       string `json:"decision_ref"`
+	Reason            string `json:"reason"`
+	ResolvedAt        string `json:"resolved_at"`
+	RejectedPreserved bool   `json:"rejected_preserved"`
 }
 
 type ResolutionResult struct {
-	Case               ForkCase             `json:"case"`
-	Resolution         ResolutionCandidate  `json:"resolution"`
+	Case       ForkCase            `json:"case"`
+	Resolution ResolutionCandidate `json:"resolution"`
 }
 
 // OpenForkCase creates the non-authoritative recovery-fork state that must be
@@ -67,9 +67,9 @@ func OpenForkCase(caseID string, fork ForkResult) (ForkCase, error) {
 	}, nil
 }
 
-// ValidateResolution checks a proposed operator resolution. It does not itself
-// authenticate the actor or move authority; callers must submit the validated
-// result through the ordinary governed decision path.
+// ValidateResolution checks a proposed operator resolution. ActorID is a
+// claimed identity only: this function does not authenticate it or move
+// authority. The result must still pass the ordinary governed decision path.
 func ValidateResolution(c ForkCase, candidate ResolutionCandidate) (ResolutionResult, error) {
 	if c.Status != CaseOpen {
 		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: case is not open")
@@ -87,8 +87,8 @@ func ValidateResolution(c ForkCase, candidate ResolutionCandidate) (ResolutionRe
 	if candidate.RejectedHead != expectedRejected {
 		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: rejected head must be the unselected preserved head")
 	}
-	if candidate.AuthorisedBy == "" || candidate.DecisionRef == "" || candidate.Reason == "" {
-		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: authority, decision reference and reason are required")
+	if candidate.ActorID == "" || candidate.DecisionRef == "" || candidate.Reason == "" {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: actor_id, decision reference and reason are required")
 	}
 	if !candidate.RejectedPreserved {
 		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: rejected history must remain preserved evidence")
