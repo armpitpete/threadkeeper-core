@@ -6,7 +6,7 @@ Given two recovered histories, Core classifies them as identical, one strictly d
 
 ## Resolution workflow
 
-`recovery.OpenForkCase` creates the explicit unresolved case only when neither history is already a strict continuation of the other.
+`recovery.OpenForkCase` receives the two recovered histories and performs the classification itself. It does not trust caller-supplied fork metadata. It creates an unresolved case only when neither history is already a strict continuation of the other.
 
 `recovery.ValidateResolution` accepts a resolution candidate only when it:
 
