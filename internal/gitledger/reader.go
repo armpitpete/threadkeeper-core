@@ -377,31 +377,14 @@ func (r *Reader) run(parent context.Context, args ...string) ([]byte, error) {
 	return stdout.Bytes(), nil
 }
 
+// controlledEnv deliberately does not inherit the host Git environment.
+// Authority-path Git commands receive only values Core explicitly owns. This
+// closes both future ambient GIT_* mechanisms (including ref-backend selectors)
+// and case-variant environment bypasses on case-insensitive platforms.
 func controlledEnv() []string {
-	blocked := []string{
-		"GIT_DIR=", "GIT_WORK_TREE=", "GIT_INDEX_FILE=", "GIT_OBJECT_DIRECTORY=", "GIT_ALTERNATE_OBJECT_DIRECTORIES=",
-		"GIT_REPLACE_REF_BASE=", "GIT_CONFIG=", "GIT_CONFIG_SYSTEM=", "GIT_CONFIG_GLOBAL=", "GIT_CONFIG_NOSYSTEM=", "GIT_CONFIG_COUNT=",
-		"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_", "GIT_CONFIG_PARAMETERS=", "GIT_COMMON_DIR=", "GIT_NAMESPACE=", "GIT_SHALLOW_FILE=",
-		"GIT_GRAFT_FILE=", "GIT_EXEC_PATH=", "GIT_TEMPLATE_DIR=", "GIT_SSH=", "GIT_SSH_COMMAND=", "GIT_ASKPASS=", "SSH_ASKPASS=",
-		"GIT_TERMINAL_PROMPT=", "GIT_PAGER=", "PAGER=", "GIT_EDITOR=", "GIT_SEQUENCE_EDITOR=", "GIT_LITERAL_PATHSPECS=",
-		"GIT_GLOB_PATHSPECS=", "GIT_NOGLOB_PATHSPECS=", "GIT_ICASE_PATHSPECS=", "GIT_ATTR_NOSYSTEM=", "GIT_NO_LAZY_FETCH=", "LC_ALL=", "LANG=",
-	}
-	env := make([]string, 0, len(os.Environ())+11)
-	for _, item := range os.Environ() {
-		blockedItem := false
-		for _, prefix := range blocked {
-			if strings.HasPrefix(item, prefix) {
-				blockedItem = true
-				break
-			}
-		}
-		if !blockedItem {
-			env = append(env, item)
-		}
-	}
-	return append(env,
+	env := []string{
 		"GIT_CONFIG_NOSYSTEM=1",
-		"GIT_CONFIG_GLOBAL="+os.DevNull,
+		"GIT_CONFIG_GLOBAL=" + os.DevNull,
 		"GIT_TERMINAL_PROMPT=0",
 		"GIT_PAGER=cat",
 		"PAGER=cat",
@@ -411,7 +394,31 @@ func controlledEnv() []string {
 		"GIT_NO_LAZY_FETCH=1",
 		"LC_ALL=C",
 		"LANG=C",
-	)
+	}
+
+	// Go adds SYSTEMROOT automatically for Windows child processes when it is
+	// absent, but retain the two canonical OS-root variables explicitly when
+	// present so Git for Windows has the normal runtime boundary without
+	// inheriting arbitrary process state. Matching is case-insensitive because
+	// Windows environment variable names are case-insensitive.
+	if runtime.GOOS == "windows" {
+		for _, key := range []string{"SYSTEMROOT", "WINDIR"} {
+			if value, ok := lookupEnvFold(key); ok {
+				env = append(env, key+"="+value)
+			}
+		}
+	}
+	return env
+}
+
+func lookupEnvFold(want string) (string, bool) {
+	for _, item := range os.Environ() {
+		key, value, ok := strings.Cut(item, "=")
+		if ok && strings.EqualFold(key, want) {
+			return value, true
+		}
+	}
+	return "", false
 }
 
 func isObjectID(s string) bool {
