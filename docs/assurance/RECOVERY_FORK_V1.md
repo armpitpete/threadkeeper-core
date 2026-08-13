@@ -13,9 +13,9 @@ Given two recovered histories, Core classifies them as identical, one strictly d
 - names the exact open recovery case;
 - selects exactly one of the two preserved heads;
 - identifies the other head as rejected;
-- records the authorised actor/mechanism, decision reference, reason and exact resolution time;
+- records the claimed actor identity, decision reference, reason and exact resolution time;
 - explicitly confirms that the rejected history remains preserved evidence.
 
-The validator does not itself authenticate the actor or move the authoritative ref. The validated resolution must still pass the ordinary actor-authentication, governed-decision and authority-write path.
+The actor identity in this candidate is not proof of authority. The validator does not authenticate the actor or move the authoritative ref. The validated resolution must still pass the ordinary actor-authentication, governed-decision and authority-write path.
 
 Resolving a recovery fork is therefore a new governed decision. The rejected branch remains evidence; it is not rewritten out of history, and timestamps never choose the winner automatically.
