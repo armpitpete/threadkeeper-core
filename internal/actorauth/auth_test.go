@@ -32,7 +32,7 @@ func authFixture(t *testing.T) (Policy, Proof, RequestContext, time.Time) {
 	proof.Signature = base64.RawStdEncoding.EncodeToString(ed25519.Sign(priv, message))
 	policy := Policy{
 		Keys: []KeyBinding{{ActorID: proof.ActorID, KeyID: proof.KeyID, PublicKey: pub}},
-		Grants: []Grant{{ActorID: proof.ActorID, LedgerID: ctx.LedgerID, Action: ActionDecide}},
+		Grants: []Grant{{ActorID: proof.ActorID, LedgerID: ctx.LedgerID, Action: ActionDecide, Target: ctx.Target}},
 		MaxProofLifetime: 5 * time.Minute,
 	}
 	return policy, proof, ctx, now
@@ -59,15 +59,15 @@ func TestAuthenticationRejectsActorSubstitution(t *testing.T) {
 	policy, proof, ctx, now := authFixture(t)
 	proof.ActorID = "actor:attacker"
 	policy.Keys = append(policy.Keys, KeyBinding{ActorID: "actor:attacker", KeyID: proof.KeyID, PublicKey: policy.Keys[0].PublicKey})
-	policy.Grants = append(policy.Grants, Grant{ActorID: "actor:attacker", LedgerID: ctx.LedgerID, Action: ActionDecide})
+	policy.Grants = append(policy.Grants, Grant{ActorID: "actor:attacker", LedgerID: ctx.LedgerID, Action: ActionDecide, Target: ctx.Target})
 	if _, err := AuthenticateAndAuthorize(policy, proof, ctx, now); err == nil {
 		t.Fatal("expected signature to bind actor identity")
 	}
 }
 
-func TestAuthorizationRequiresExactLedgerActionGrant(t *testing.T) {
+func TestAuthorizationRequiresExactLedgerActionAndTargetGrant(t *testing.T) {
 	policy, proof, ctx, now := authFixture(t)
-	policy.Grants = []Grant{{ActorID: proof.ActorID, LedgerID: "ledger:other", Action: ActionDecide}}
+	policy.Grants = []Grant{{ActorID: proof.ActorID, LedgerID: ctx.LedgerID, Action: ActionDecide, Target: "project:other/status"}}
 	if _, err := AuthenticateAndAuthorize(policy, proof, ctx, now); err == nil {
 		t.Fatal("expected authorization denial")
 	}
