@@ -23,9 +23,10 @@ Authentication does not imply permission. After proof verification, Core require
 
 - authenticated actor;
 - ledger identity;
-- action.
+- action;
+- governed target.
 
-The v1 action vocabulary is `propose`, `decide`, and `operate`. A grant on one ledger or action does not authorize another.
+The v1 action vocabulary is `propose`, `decide`, and `operate`. A grant on one ledger, action or target does not authorize another.
 
 ## Authority boundary
 
