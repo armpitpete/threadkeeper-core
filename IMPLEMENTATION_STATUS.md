@@ -16,6 +16,9 @@ Implemented and exercised by conformance tests:
 - adversarial repository-isolation regressions for alternates, `commondir`, partial clones/lazy fetch, symlinked authority stores, reftable/worktree config, hostile Git environments and non-regular JSON tree modes;
 - explicit known-safe Git subprocess environment, including Windows case-insensitive environment isolation;
 - concurrent replay/write/idempotency/cancellation safety tests and explicit overload signalling;
+- protocol-neutral Ed25519 actor authentication with proofs bound to ledger, action, exact target, expected prior state and idempotency identity;
+- exact actor + ledger + action + target authorisation grants with revoked-key and expiry handling;
+- service-level authority-write admission that evaluates the hard release kill-switch before actor authentication/authorisation;
 - explicit hard public/service gate: `AUTHORITY_WRITES_DISABLED`.
 
 ## Installed assurance/read capabilities
@@ -47,8 +50,10 @@ Implemented and exercised by conformance tests:
 ## Integration and protected work
 
 - PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b`; an independent full Issue #9 PASS was **not** recorded before that merge. The exception is explicit and does not enable public authority writes;
+- PR #12 assurance expansion is integrated on `main`;
+- the Genesis legacy-adoption validator is integrated, but actual Genesis adoption remains blocked until the real legacy governance ledger and exact pre-adoption head are identified;
 - before any public authority writer is enabled, the merged CAS boundary still requires fresh independent hostile review;
-- public authority-write transport and actor authentication/authorisation remain disabled;
+- no public authority-write transport is enabled; actor authentication/authorisation is installed only as a fail-closed admission prerequisite;
 - quarantine is not yet wired into Git candidate materialisation because that would change the CAS boundary and requires a separate review;
 - broad existing durable event/config schemas have not yet been migrated to require temporal/coverage/confidentiality fields universally;
 - checkpoint-accelerated replay has not replaced full replay; checkpoint build/verification is installed as an optimisation boundary only;
@@ -64,4 +69,4 @@ See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the exact sequence.
 
 `AUTHORITY_WRITES_DISABLED`
 
-This remains true until the recovery, authentication/authorisation, deployment-ownership, quarantine-integration, CAS-review, load-safety and release-governance gates are separately accepted.
+This remains true until the Genesis evidence boundary, deployment ownership, quarantine integration, fresh CAS review, load safety, independent recovery proof and release-governance gates are separately accepted.
