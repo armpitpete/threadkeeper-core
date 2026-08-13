@@ -37,25 +37,19 @@ type ResolutionResult struct {
 	Resolution ResolutionCandidate `json:"resolution"`
 }
 
-// OpenForkCase creates the non-authoritative recovery-fork state that must be
-// resolved by a separately authorised governed decision. Only histories for
-// which neither side is already a strict continuation of the other need this
-// choice workflow.
-func OpenForkCase(caseID string, fork ForkResult) (ForkCase, error) {
+// OpenForkCase classifies the supplied recovered histories itself rather than
+// trusting caller-supplied fork metadata. Only histories for which neither side
+// is already a strict continuation of the other enter operator selection.
+func OpenForkCase(caseID string, historyA, historyB []string) (ForkCase, error) {
 	if caseID == "" {
 		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: case_id is required")
 	}
-	if fork.HeadA == "" || fork.HeadB == "" || fork.HeadA == fork.HeadB {
-		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: two distinct heads are required")
+	fork, err := Classify(historyA, historyB)
+	if err != nil {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: classify histories: %w", err)
 	}
 	if fork.Kind != Divergent && fork.Kind != Unrelated {
 		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_NOT_REQUIRED: kind %q does not require operator selection", fork.Kind)
-	}
-	if fork.Kind == Divergent && fork.CommonAncestor == "" {
-		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: divergent histories require a common ancestor")
-	}
-	if fork.Kind == Unrelated && fork.CommonAncestor != "" {
-		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: unrelated histories cannot claim a common ancestor")
 	}
 	return ForkCase{
 		CaseID:         caseID,
