@@ -2,13 +2,15 @@
 
 The assurance programme intentionally leaves a small number of boundaries unconsumed. They are not hidden implementation gaps.
 
-## 1. Independent CAS acceptance
+## 1. CAS review status
 
-PR #11 at its exact current repair head must receive a genuinely independent full Issue #9 PASS. The repair author cannot self-clear this gate. Only after PASS may PR #11 merge.
+PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b` after exact-head conformance passed. A genuinely independent full Issue #9 PASS was not recorded before that merge. The repository records that fact explicitly and must not represent the independent gate as having passed.
 
-## 2. Rebase/retarget assurance expansion
+The merged CAS boundary remains subject to fresh independent hostile review before public authority-write enablement.
 
-PR #12 is stacked on PR #11. After #11 merges, #12 must be retargeted/rebased onto the accepted `main`, rerun full conformance on the resulting exact head, and receive review appropriate to its security/authority-adjacent scope before merge.
+## 2. Assurance expansion integration
+
+PR #12 must be replayed/rebased onto the accepted `main`, rerun full exact-head conformance, and receive review appropriate to its security/authority-adjacent scope before merge.
 
 ## 3. Genesis adoption
 
@@ -18,6 +20,7 @@ The development ledger predates Genesis v1. Adoption requires an explicit migrat
 
 Before any public authority writer can exist, all of the following remain required:
 
+- fresh independent hostile review of the then-exact CAS boundary;
 - actor authentication and authorisation contract + implementation;
 - service-owned/non-writable ledger deployment proof from the threat model;
 - candidate quarantine integrated into writer materialisation and independently re-reviewed because that changes the CAS boundary;
