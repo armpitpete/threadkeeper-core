@@ -46,6 +46,7 @@ type Grant struct {
 	ActorID  string
 	LedgerID string
 	Action   Action
+	Target   string
 }
 
 type Policy struct {
@@ -107,8 +108,8 @@ func AuthenticateAndAuthorize(policy Policy, proof Proof, expected RequestContex
 		return Principal{}, fmt.Errorf("AUTHENTICATION_FAILED: signature verification failed")
 	}
 
-	if !hasGrant(policy.Grants, proof.ActorID, expected.LedgerID, expected.Action) {
-		return Principal{}, fmt.Errorf("AUTHORIZATION_DENIED: actor %q lacks %q on ledger %q", proof.ActorID, expected.Action, expected.LedgerID)
+	if !hasGrant(policy.Grants, proof.ActorID, expected.LedgerID, expected.Action, expected.Target) {
+		return Principal{}, fmt.Errorf("AUTHORIZATION_DENIED: actor %q lacks %q on target %q in ledger %q", proof.ActorID, expected.Action, expected.Target, expected.LedgerID)
 	}
 	return Principal{ActorID: proof.ActorID, KeyID: proof.KeyID}, nil
 }
@@ -139,8 +140,8 @@ func validatePolicy(policy Policy) error {
 		seen[identity] = struct{}{}
 	}
 	for _, grant := range policy.Grants {
-		if grant.ActorID == "" || grant.LedgerID == "" || !validAction(grant.Action) {
-			return fmt.Errorf("AUTH_POLICY_INVALID: every grant requires actor_id, ledger_id and a supported action")
+		if grant.ActorID == "" || grant.LedgerID == "" || grant.Target == "" || !validAction(grant.Action) {
+			return fmt.Errorf("AUTH_POLICY_INVALID: every grant requires actor_id, ledger_id, target and a supported action")
 		}
 	}
 	return nil
@@ -164,9 +165,9 @@ func findKey(keys []KeyBinding, actorID, keyID string) (KeyBinding, bool) {
 	return KeyBinding{}, false
 }
 
-func hasGrant(grants []Grant, actorID, ledgerID string, action Action) bool {
+func hasGrant(grants []Grant, actorID, ledgerID string, action Action, target string) bool {
 	for _, grant := range grants {
-		if grant.ActorID == actorID && grant.LedgerID == ledgerID && grant.Action == action {
+		if grant.ActorID == actorID && grant.LedgerID == ledgerID && grant.Action == action && grant.Target == target {
 			return true
 		}
 	}
