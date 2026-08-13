@@ -177,7 +177,11 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 		return fmt.Errorf("create empty hooks directory: %w", err)
 	}
 	defer os.RemoveAll(hooksDir)
-	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", r.ref, candidateCommit, expectedHead); err != nil {
+	// --no-deref makes the CAS target the configured ref object itself. A
+	// symbolic ref introduced by a filesystem race therefore cannot redirect
+	// mutation to its target; static symbolic refs are rejected before this
+	// point by checkAuthoritativeRefSafety.
+	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead); err != nil {
 		now, headErr := r.Head(ctx)
 		if headErr == nil && now != expectedHead {
 			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
@@ -228,6 +232,12 @@ func (r *Reader) verifySinglePathAddition(ctx context.Context, candidateCommit, 
 }
 
 func (r *Reader) runWrite(parent context.Context, stdin []byte, extraEnv []string, hooksDir string, args ...string) ([]byte, error) {
+	releaseRoot, err := r.holdRepositoryRoot()
+	if err != nil {
+		return nil, err
+	}
+	defer releaseRoot()
+
 	ctx, cancel := context.WithTimeout(parent, r.timeout)
 	defer cancel()
 	base := []string{"--no-replace-objects", "--git-dir=" + r.gitDir, "-c", "core.hooksPath=" + hooksDir, "-c", "commit.gpgSign=false"}

@@ -21,7 +21,7 @@ The internal writer remains behind the hard public gate:
 
 `AUTHORITY_WRITES_DISABLED`
 
-The CAS repair lane is independently reviewed before merge/enablement. The assurance layer adds explicit genesis, threat boundaries, source escrow policy, bitemporal time, coverage/completeness, confidentiality/retention, dissent/reopening context, fork recovery, candidate quarantine primitives, policy simulation, replay checkpoints, external witness verification, federation, build provenance and operability models.
+The CAS repair lane was merged to `main` by explicit owner override after exact-head conformance passed; a genuinely independent full Issue #9 PASS was not recorded before that merge. That exception is preserved as governance evidence and does not enable public authority writes. The assurance layer adds explicit genesis, threat boundaries, source escrow policy, bitemporal time, coverage/completeness, confidentiality/retention, dissent/reopening context, fork recovery, candidate quarantine primitives, policy simulation, replay checkpoints, external witness verification, federation, build provenance and operability models.
 
 ## Planes
 
