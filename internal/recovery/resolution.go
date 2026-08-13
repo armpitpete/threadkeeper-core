@@ -1,0 +1,103 @@
+package recovery
+
+import (
+	"fmt"
+	"time"
+)
+
+type CaseStatus string
+
+const (
+	CaseOpen     CaseStatus = "recovery_fork"
+	CaseResolved CaseStatus = "resolved"
+)
+
+type ForkCase struct {
+	CaseID         string     `json:"case_id"`
+	Status         CaseStatus `json:"status"`
+	Kind           ForkKind   `json:"kind"`
+	CommonAncestor string     `json:"common_ancestor,omitempty"`
+	HeadA          string     `json:"head_a"`
+	HeadB          string     `json:"head_b"`
+}
+
+type ResolutionCandidate struct {
+	CaseID             string `json:"case_id"`
+	SelectedHead       string `json:"selected_head"`
+	RejectedHead       string `json:"rejected_head"`
+	AuthorisedBy       string `json:"authorised_by"`
+	DecisionRef        string `json:"decision_ref"`
+	Reason             string `json:"reason"`
+	ResolvedAt         string `json:"resolved_at"`
+	RejectedPreserved  bool   `json:"rejected_preserved"`
+}
+
+type ResolutionResult struct {
+	Case               ForkCase             `json:"case"`
+	Resolution         ResolutionCandidate  `json:"resolution"`
+}
+
+// OpenForkCase creates the non-authoritative recovery-fork state that must be
+// resolved by a separately authorised governed decision. Only histories for
+// which neither side is already a strict continuation of the other need this
+// choice workflow.
+func OpenForkCase(caseID string, fork ForkResult) (ForkCase, error) {
+	if caseID == "" {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: case_id is required")
+	}
+	if fork.HeadA == "" || fork.HeadB == "" || fork.HeadA == fork.HeadB {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: two distinct heads are required")
+	}
+	if fork.Kind != Divergent && fork.Kind != Unrelated {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_NOT_REQUIRED: kind %q does not require operator selection", fork.Kind)
+	}
+	if fork.Kind == Divergent && fork.CommonAncestor == "" {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: divergent histories require a common ancestor")
+	}
+	if fork.Kind == Unrelated && fork.CommonAncestor != "" {
+		return ForkCase{}, fmt.Errorf("RECOVERY_FORK_INVALID: unrelated histories cannot claim a common ancestor")
+	}
+	return ForkCase{
+		CaseID:         caseID,
+		Status:         CaseOpen,
+		Kind:           fork.Kind,
+		CommonAncestor: fork.CommonAncestor,
+		HeadA:          fork.HeadA,
+		HeadB:          fork.HeadB,
+	}, nil
+}
+
+// ValidateResolution checks a proposed operator resolution. It does not itself
+// authenticate the actor or move authority; callers must submit the validated
+// result through the ordinary governed decision path.
+func ValidateResolution(c ForkCase, candidate ResolutionCandidate) (ResolutionResult, error) {
+	if c.Status != CaseOpen {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: case is not open")
+	}
+	if candidate.CaseID != c.CaseID {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: case identity mismatch")
+	}
+	if candidate.SelectedHead != c.HeadA && candidate.SelectedHead != c.HeadB {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: selected head is not a preserved fork head")
+	}
+	expectedRejected := c.HeadA
+	if candidate.SelectedHead == c.HeadA {
+		expectedRejected = c.HeadB
+	}
+	if candidate.RejectedHead != expectedRejected {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: rejected head must be the unselected preserved head")
+	}
+	if candidate.AuthorisedBy == "" || candidate.DecisionRef == "" || candidate.Reason == "" {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: authority, decision reference and reason are required")
+	}
+	if !candidate.RejectedPreserved {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: rejected history must remain preserved evidence")
+	}
+	if _, err := time.Parse(time.RFC3339, candidate.ResolvedAt); err != nil {
+		return ResolutionResult{}, fmt.Errorf("RECOVERY_FORK_INVALID: resolved_at: %w", err)
+	}
+
+	resolved := c
+	resolved.Status = CaseResolved
+	return ResolutionResult{Case: resolved, Resolution: candidate}, nil
+}
