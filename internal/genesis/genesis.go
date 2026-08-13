@@ -37,7 +37,9 @@ func Validate(raw []byte) (Root, error) {
 		return Root{}, fmt.Errorf("GENESIS_INVALID: %w", err)
 	}
 	var root Root
-	if err := json.Unmarshal(raw, &root); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&root); err != nil {
 		return Root{}, fmt.Errorf("GENESIS_INVALID: decode: %w", err)
 	}
 	if root.ProjectID == "" || root.LedgerID == "" || root.InitialAuthorityPolicy == "" || len(root.InitialAuthorities) == 0 {
