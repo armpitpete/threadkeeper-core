@@ -37,6 +37,7 @@ func TestDecodeProvenanceRejectsUnknownSelfCertificationField(t *testing.T) {
 
 func TestDecodeProvenanceRejectsDuplicateTopLevelMember(t *testing.T) {
 	raw := []byte(`{"schema_version":"threadkeeper.secondary-restore-provenance.v1","schema_version":"threadkeeper.secondary-restore-provenance.v1"}`)
+	raw = []byte(strings.ReplaceAll(string(raw), `\"`, `"`))
 	_, err := DecodeProvenance(raw)
 	if err == nil || !strings.Contains(strings.ToLower(err.Error()), "duplicate") {
 		t.Fatalf("duplicate top-level provenance member accepted: %v", err)
