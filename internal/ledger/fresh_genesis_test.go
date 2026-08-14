@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
@@ -18,11 +19,11 @@ import (
 func TestInitializeFreshGenesisCreatesReplayableRoot(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "production-ledger.git")
 	raw := freshGenesisFixture(t, nil)
-	evidence, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, raw, nil)
+	evidence, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, raw, freshGenesisSeed(t, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.ProjectID != "project:fresh-test" || evidence.LedgerID != "ledger:fresh-test" {
+	if evidence.ProjectID != "project:fresh-test" || evidence.LedgerID != "ledger:fresh-test" || evidence.ActorPolicyContentSHA256 == "" {
 		t.Fatalf("unexpected evidence identity: %#v", evidence)
 	}
 	if evidence.GenesisCommit == "" || evidence.GenesisCommit != evidence.LedgerCommit {
@@ -44,6 +45,10 @@ func TestInitializeFreshGenesisCreatesReplayableRoot(t *testing.T) {
 	if manifest.GenesisCommit != evidence.GenesisCommit || manifest.GenesisRoot.LedgerID != evidence.LedgerID || manifest.HistoryCommitCount != 1 {
 		t.Fatalf("restart changed Genesis identity: %#v", manifest)
 	}
+	policy, err := LoadCurrentActorPolicy(context.Background(), restarted)
+	if err != nil || policy.PolicyContentSHA != evidence.ActorPolicyContentSHA256 || policy.SourceEventID != "" {
+		t.Fatalf("restart changed actor policy identity: snapshot=%#v err=%v", policy, err)
+	}
 }
 
 func TestInitializeFreshGenesisRefusesExistingTargetWithoutOverwrite(t *testing.T) {
@@ -55,7 +60,7 @@ func TestInitializeFreshGenesisRefusesExistingTargetWithoutOverwrite(t *testing.
 	if err := os.WriteFile(sentinel, []byte("preserve me"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), nil)
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, nil))
 	if err == nil || !errors.Is(err, gitledger.ErrLedgerAlreadyExists) {
 		t.Fatalf("existing target = %v, want LEDGER_ALREADY_EXISTS", err)
 	}
@@ -67,7 +72,7 @@ func TestInitializeFreshGenesisRefusesExistingTargetWithoutOverwrite(t *testing.
 
 func TestInitializeFreshGenesisRejectsInvalidInputBeforeCreatingTarget(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "must-not-exist")
-	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, []byte(`{"project_id":"incomplete"}`), nil)
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, []byte(`{"project_id":"incomplete"}`), freshGenesisSeed(t, nil))
 	if err == nil || !strings.Contains(err.Error(), "FRESH_GENESIS_INVALID") {
 		t.Fatalf("invalid Genesis = %v", err)
 	}
@@ -76,12 +81,23 @@ func TestInitializeFreshGenesisRejectsInvalidInputBeforeCreatingTarget(t *testin
 	}
 }
 
+func TestInitializeFreshGenesisRejectsMissingActorPolicyBeforeCreatingTarget(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "must-not-exist")
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), nil)
+	if err == nil || !strings.Contains(err.Error(), "must supply authoritative actor policy") {
+		t.Fatalf("missing actor policy = %v", err)
+	}
+	if _, statErr := os.Lstat(target); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("missing actor policy created target: %v", statErr)
+	}
+}
+
 func TestInitializeFreshGenesisRejectsUnsafeSeedBeforeCreatingTarget(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "must-not-exist")
-	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), map[string][]byte{
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, map[string][]byte{
 		"events/not-authorised.json": []byte(`{}`),
-	})
-	if err == nil || !strings.Contains(err.Error(), "outside initial schema/reducer-binding namespaces") {
+	}))
+	if err == nil || !strings.Contains(err.Error(), "outside initial schema/reducer-binding/actor-policy namespaces") {
 		t.Fatalf("unsafe seed = %v", err)
 	}
 	if _, statErr := os.Lstat(target); !errors.Is(statErr, os.ErrNotExist) {
@@ -91,15 +107,13 @@ func TestInitializeFreshGenesisRejectsUnsafeSeedBeforeCreatingTarget(t *testing.
 
 func TestFreshGenesisInitialSchemaSetMustMatchRoot(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "schema-mismatch.git")
-	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), map[string][]byte{
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, map[string][]byte{
 		"config/schemas/event/test-v1.json": testSchema,
-	})
+	}))
 	if err == nil || !strings.Contains(err.Error(), "GENESIS_SCHEMA_MISMATCH") {
 		t.Fatalf("schema mismatch = %v", err)
 	}
 
-	// The create-only attempt may leave residue, but it must remain unusable
-	// through the normal authoritative replay path.
 	r, openErr := gitledger.New(target, gitledger.DefaultRef)
 	if openErr != nil {
 		t.Fatal(openErr)
@@ -112,9 +126,9 @@ func TestFreshGenesisInitialSchemaSetMustMatchRoot(t *testing.T) {
 
 func TestFreshGenesisAcceptsDeclaredInitialSchemaRoot(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "schema-root.git")
-	evidence, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, []string{testSchemaID}), map[string][]byte{
+	evidence, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, []string{testSchemaID}), freshGenesisSeed(t, map[string][]byte{
 		"config/schemas/event/test-v1.json": testSchema,
-	})
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +221,17 @@ func freshGenesisFixture(t *testing.T, initialSchemas []string) []byte {
 		t.Fatal(err)
 	}
 	return completed
+}
+
+func freshGenesisSeed(t *testing.T, extra map[string][]byte) map[string][]byte {
+	t.Helper()
+	seed := map[string][]byte{
+		actorauth.LedgerPolicyPath: writeTestActorPolicy(t, t.TempDir()),
+	}
+	for path, raw := range extra {
+		seed[path] = raw
+	}
+	return seed
 }
 
 func rawWorkRepo(t *testing.T) string {
