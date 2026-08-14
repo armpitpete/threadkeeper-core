@@ -37,8 +37,10 @@ type Entry struct {
 // putHooks is deterministic test instrumentation for the private publication
 // lifecycle. Production callers always pass nil.
 type putHooks struct {
-	beforeSync func()
-	syncFile   func(*os.File) error
+	beforeSync          func()
+	syncFile            func(*os.File) error
+	beforeDirectorySync func()
+	syncDirectory       func(*os.File) error
 }
 
 func Open(dir string) (*Store, error) {
@@ -128,7 +130,9 @@ func (s *Store) Close() error {
 // Put publishes one candidate under id without ever exposing creator-owned
 // partial bytes at the final capability name. The complete content is written,
 // synced and closed in a private file first. A root-relative hard link then
-// atomically publishes the final name without replacing an existing file.
+// atomically publishes the final name without replacing an existing file. The
+// pinned quarantine directory is synced after the namespace mutation before
+// Put may report success.
 func (s *Store) Put(id string, content []byte) (Entry, error) {
 	return s.put(id, content, nil)
 }
@@ -152,6 +156,8 @@ func (s *Store) put(id string, content []byte, hooks *putHooks) (Entry, error) {
 		}
 		// This invocation owns only its private file. Once the final hard link
 		// exists, cleanup here can never remove another publisher's capability.
+		// Temp removal is retention cleanup, not part of the correctness-critical
+		// durable-publication point; process-crash residue is pruned later.
 		_ = s.root.Remove(tempName)
 	}()
 
@@ -182,10 +188,13 @@ func (s *Store) put(id string, content []byte, hooks *putHooks) (Entry, error) {
 	if err := s.root.Link(tempName, name); err != nil {
 		return Entry{}, err
 	}
+	if err := s.syncRootDirectory(hooks); err != nil {
+		return Entry{}, fmt.Errorf("QUARANTINE_DURABILITY_FAILURE: sync published candidate directory entry: %w", err)
+	}
 
-	// Link succeeded only after the private file was fully synced and closed.
-	// Verify the published name before reporting success. The temporary hard link
-	// is then removed by the deferred cleanup, leaving the final capability.
+	// Link and directory sync succeeded only after the private file was fully
+	// synced and closed. Verify the published name before reporting success. The
+	// temporary hard link is then removed by deferred best-effort cleanup.
 	published, got, err := s.ReadID(id)
 	if err != nil {
 		return Entry{}, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: verify published candidate: %w", err)
@@ -197,9 +206,12 @@ func (s *Store) put(id string, content []byte, hooks *putHooks) (Entry, error) {
 }
 
 // Ensure is idempotent for identical completed candidate bytes. A final
-// capability name is created only after a private write has synced and closed,
-// so an existing final file is never treated as an in-progress publication.
-// Reusing a candidate identity for different bytes fails closed.
+// capability name is created only after a private write has synced and closed.
+// Because a final hard link can become visible before its creator finishes the
+// directory fsync, every caller that converges on an existing identical final
+// name also syncs the pinned directory itself and then re-reads the candidate
+// before it may report success. Reusing a candidate identity for different
+// bytes fails closed.
 func (s *Store) Ensure(id string, content []byte) (Entry, error) {
 	return s.ensure(id, content, nil)
 }
@@ -218,20 +230,60 @@ func (s *Store) ensure(id string, content []byte, hooks *putHooks) (Entry, error
 		existing, got, readErr := s.ReadID(id)
 		if readErr != nil {
 			if errors.Is(readErr, fs.ErrNotExist) && time.Now().Before(deadline) {
-				// A completed final capability can disappear only because another
-				// lifecycle operation removed it. Retry private no-overwrite
-				// publication; higher-level snapshot reconciliation decides whether
-				// that material became obsolete through durable acceptance.
+				// Another lifecycle operation may have removed the final capability
+				// after our no-overwrite collision. Retry private publication.
 				time.Sleep(ensureRetryInterval)
 				continue
 			}
 			return Entry{}, readErr
 		}
-		if bytes.Equal(got, content) {
-			return existing, nil
+		if !bytes.Equal(got, content) {
+			return Entry{}, fmt.Errorf("QUARANTINE_CONFLICT: candidate id %q already contains different bytes", id)
 		}
-		return Entry{}, fmt.Errorf("QUARANTINE_CONFLICT: candidate id %q already contains different bytes", id)
+
+		// Existence plus matching bytes proves only visibility, not that the
+		// publisher has completed its directory fsync. Establish the durability
+		// point ourselves, then re-read to prove the same exact final capability
+		// still exists after that sync before reporting idempotent success.
+		if err := s.syncRootDirectory(hooks); err != nil {
+			return Entry{}, fmt.Errorf("QUARANTINE_DURABILITY_FAILURE: sync existing candidate directory entry: %w", err)
+		}
+		settled, settledBytes, readErr := s.ReadID(id)
+		if readErr != nil {
+			if errors.Is(readErr, fs.ErrNotExist) && time.Now().Before(deadline) {
+				time.Sleep(ensureRetryInterval)
+				continue
+			}
+			return Entry{}, readErr
+		}
+		if !bytes.Equal(settledBytes, content) {
+			return Entry{}, fmt.Errorf("QUARANTINE_CONFLICT: candidate id %q changed during durable convergence", id)
+		}
+		if settled != existing {
+			return Entry{}, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: candidate identity changed during durable convergence")
+		}
+		return settled, nil
 	}
+}
+
+func (s *Store) syncRootDirectory(hooks *putHooks) error {
+	if hooks != nil && hooks.beforeDirectorySync != nil {
+		hooks.beforeDirectorySync()
+	}
+	dir, err := s.root.Open(".")
+	if err != nil {
+		return err
+	}
+	if hooks != nil && hooks.syncDirectory != nil {
+		err = hooks.syncDirectory(dir)
+	} else {
+		err = dir.Sync()
+	}
+	closeErr := dir.Close()
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 func (s *Store) Read(entry Entry) ([]byte, error) {
@@ -276,6 +328,9 @@ func (s *Store) Remove(id string) error {
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: candidate is not a regular file")
 	}
+	// Removal is lifecycle cleanup rather than a successful publication point.
+	// If a process crashes before the namespace update is persisted, the safe
+	// outcome is retention of the candidate until retry/pruning.
 	return s.root.Remove(name)
 }
 

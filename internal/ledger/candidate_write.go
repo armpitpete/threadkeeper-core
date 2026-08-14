@@ -70,6 +70,7 @@ type candidateDocument struct {
 // callers always use nil hook sets.
 type prepareWriteHooks struct {
 	beforeEventCommit        func()
+	afterBoundEnsure         func()
 	beforeFinalSnapshotCheck func()
 }
 
@@ -212,30 +213,45 @@ func prepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: bind quarantine identity: %v", ErrCandidateInvalid, err)
 	}
-	boundEntry, err := q.Ensure(boundID, quarantined)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: finalise bound quarantine: %v", ErrCandidateInvalid, err)
-	}
-	boundBytes, err := q.Read(boundEntry)
-	if err != nil {
-		return nil, nil, fmt.Errorf("%w: verify bound quarantine: %v", ErrCandidateInvalid, err)
-	}
-	if !bytes.Equal(boundBytes, quarantined) {
-		return nil, nil, fmt.Errorf("%w: bound quarantine bytes changed", ErrCandidateInvalid)
-	}
-	if err := q.Remove(stageEntry.ID); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, nil, fmt.Errorf("%w: remove staging quarantine after binding: %v", ErrCandidateInvalid, err)
-	}
-
-	prepared := &WriteCandidate{
+	preparedIdentity := WriteCandidate{
 		ExpectedHead:    manifest.LedgerCommit,
 		CandidateCommit: gitCandidate.Commit,
 		EventPath:       req.EventPath,
 		EventID:         doc.EventID,
 		IdempotencyKey:  doc.IdempotencyKey,
 		ContentSHA256:   doc.ContentSHA256,
-		Quarantine:      boundEntry,
+		Quarantine: quarantine.Entry{
+			ID:            boundID,
+			ContentSHA256: stageEntry.ContentSHA256,
+			Size:          stageEntry.Size,
+		},
 	}
+	boundEntry, err := q.Ensure(boundID, quarantined)
+	if err != nil {
+		originalErr := fmt.Errorf("%w: finalise bound quarantine: %v", ErrCandidateInvalid, err)
+		response, recoveryErr := recoverPrepareAfterBoundFailure(r, q, stageEntry, preparedIdentity, originalErr)
+		return nil, response, recoveryErr
+	}
+	preparedIdentity.Quarantine = boundEntry
+	if hooks != nil && hooks.afterBoundEnsure != nil {
+		hooks.afterBoundEnsure()
+	}
+	boundBytes, err := q.Read(boundEntry)
+	if err != nil {
+		originalErr := fmt.Errorf("%w: verify bound quarantine: %v", ErrCandidateInvalid, err)
+		response, recoveryErr := recoverPrepareAfterBoundFailure(r, q, stageEntry, preparedIdentity, originalErr)
+		return nil, response, recoveryErr
+	}
+	if !bytes.Equal(boundBytes, quarantined) {
+		originalErr := fmt.Errorf("%w: bound quarantine bytes changed", ErrCandidateInvalid)
+		response, recoveryErr := recoverPrepareAfterBoundFailure(r, q, stageEntry, preparedIdentity, originalErr)
+		return nil, response, recoveryErr
+	}
+	if err := q.Remove(stageEntry.ID); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return nil, nil, fmt.Errorf("%w: remove staging quarantine after binding: %v", ErrCandidateInvalid, err)
+	}
+
+	prepared := &preparedIdentity
 	if hooks != nil && hooks.beforeFinalSnapshotCheck != nil {
 		hooks.beforeFinalSnapshotCheck()
 	}
@@ -398,6 +414,20 @@ func acceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 
 func newPostAcceptanceRecoveryContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), postAcceptanceRecoveryTimeout)
+}
+
+// recoverPrepareAfterBoundFailure extends the same stale-snapshot rule used by
+// acceptance across Prepare's final bound-materialisation window. A missing or
+// changed bound capability is never acceptance evidence by itself; only a fresh
+// durable replay of the exact idempotency/event/content identity can convert the
+// failure to already_accepted. The invocation-private staging entry is cleaned
+// before the failed Prepare returns.
+func recoverPrepareAfterBoundFailure(r *gitledger.Reader, q *quarantine.Store, stageEntry quarantine.Entry, candidate WriteCandidate, originalErr error) (*WriteResponse, error) {
+	response, recoveryErr := recoverAfterSnapshotFailure(r, candidate, originalErr)
+	if removeErr := q.Remove(stageEntry.ID); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
+		return response, fmt.Errorf("CANDIDATE_QUARANTINE_CLEANUP_FAILED: bound-materialisation staging cleanup failed: %v; recovery result: %w", removeErr, recoveryErr)
+	}
+	return response, recoveryErr
 }
 
 // recoverAfterSnapshotFailure prevents an old H0 snapshot from turning a

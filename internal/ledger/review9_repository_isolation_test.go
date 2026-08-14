@@ -66,9 +66,11 @@ func TestReplayRejectsAlternateRefAndWorktreeConfigStores(t *testing.T) {
 
 	t.Run("refstorage extension", func(t *testing.T) {
 		r, _ := candidateTestReader(t)
-		// Extension keys are valid only for repository format version 1. Make the
-		// fixture valid Git config so the rejection is Threadkeeper's, not Git's
-		// malformed-repository guard.
+		// Extension keys are valid only for repository format version 1. Some Git
+		// versions accept the fixture far enough for Threadkeeper's explicit
+		// ref-storage check to reject it; newer Git versions reject the unknown
+		// extension themselves before replay reaches that deeper check. Both are
+		// valid fail-closed outcomes, but replay must never succeed.
 		runGitInDirWithEnv(t, r.GitDir(), nil, nil, "config", "core.repositoryformatversion", "1")
 		configPath := filepath.Join(r.GitDir(), "config")
 		f, err := os.OpenFile(configPath, os.O_APPEND|os.O_WRONLY, 0)
@@ -83,8 +85,14 @@ func TestReplayRejectsAlternateRefAndWorktreeConfigStores(t *testing.T) {
 			t.Fatal(err)
 		}
 		_, err = Replay(context.Background(), r)
-		if err == nil || !strings.Contains(err.Error(), "ref-storage backends") {
-			t.Fatalf("expected refstorage extension rejection, got %v", err)
+		if err == nil {
+			t.Fatal("expected refstorage extension rejection, replay succeeded")
+		}
+		msg := strings.ToLower(err.Error())
+		threadkeeperRejected := strings.Contains(msg, "ref-storage backends")
+		gitRejected := strings.Contains(msg, "unknown repository extension") && strings.Contains(msg, "refstorage")
+		if !threadkeeperRejected && !gitRejected {
+			t.Fatalf("expected Threadkeeper or Git refstorage fail-closed rejection, got %v", err)
 		}
 	})
 
