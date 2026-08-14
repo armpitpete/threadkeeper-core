@@ -9,7 +9,7 @@ Before any public authority-write interface is enabled, candidate bytes must hav
 The candidate writer treats quarantine as part of the authority boundary:
 
 1. the durable event is fully validated against the exact current ledger snapshot before candidate materialisation;
-2. the exact validated canonical event bytes are first staged in the ledger-bound private quarantine;
+2. the exact validated canonical event bytes are first staged in the ledger-bound private quarantine under a per-Prepare random staging identity, so identical concurrent prepares do not share temporary cleanup ownership;
 3. Git candidate objects are created only from bytes read back from that staging entry;
 4. after H1 is created and revalidated, preparation finalises the same raw bytes under a quarantine capability ID derived from the complete prepared identity: expected H0, prepared H1, event path, event ID, idempotency key, semantic content digest, raw-byte SHA-256 and raw byte size;
 5. the temporary staging entry is removed before a prepared handle is returned; if H0 moved before candidate construction and the exact request is recovered as already accepted, the abandoned staging entry is removed on that recovery path as well;
@@ -32,7 +32,7 @@ Successful acceptance removes the exact bound quarantine entry after post-CAS re
 
 Prepare and Accept both begin from an exact replay snapshot, but that snapshot can become stale while work is still in flight. An identical invocation may accept H1 and clean the shared bound quarantine entry after another request captured H0.
 
-Acceptance therefore does not blindly return a candidate/quarantine failure observed after its initial H0/idempotency snapshot. It first performs a fresh bounded authoritative replay and idempotency lookup. Prepare likewise reconciles both a stale `PrepareEventCommit` and a final moved-authority check before returning a candidate. If its H0 has moved, it must not return a stale candidate, resurrect a cleaned accepted quarantine entry, or retain staging material abandoned because the exact request became durably accepted.
+Acceptance therefore does not blindly return a candidate/quarantine failure observed after its initial H0/idempotency snapshot. It first performs a fresh bounded authoritative replay and idempotency lookup. Prepare likewise reconciles both a stale `PrepareEventCommit` and a final moved-authority check before returning a candidate. If its H0 has moved, it must not return a stale candidate, resurrect a cleaned accepted quarantine entry, or retain staging material abandoned because the exact request became durably accepted. Per-invocation staging IDs additionally ensure that one concurrent Prepare cannot remove another Prepare's temporary staging file.
 
 For both paths:
 
@@ -51,7 +51,7 @@ Once `git update-ref` has been invoked, the request context is no longer treated
 
 Independent hostile review Issue #21 **FAILED** merged commit `747f30b4e2af0109f592220aa03b43e1ca1f0543` because quarantine was not bound to the exact prepared commit/path and caller cancellation could make a successful CAS look like an ordinary failure. Those defects were repaired in merged commit `bfe7686856ddec54c2be3e71aa8bc020d2b7a38e`.
 
-Independent hostile re-review Issue #25 then **FAILED** that exact repaired commit on an exactly-once race: a winning identical request could accept H1 and remove Q after a losing request's H0 snapshot but before its quarantine read, causing the loser to return `CANDIDATE_INVALID` instead of `already_accepted`. The current repair adds fresh snapshot reconciliation to both acceptance and equivalent Prepare/Accept races, with deterministic tests for winner cleanup before a losing acceptance read, winner acceptance before a racing Prepare's candidate construction, and winner acceptance before a racing Prepare's final authority check.
+Independent hostile re-review Issue #25 then **FAILED** that exact repaired commit on an exactly-once race: a winning identical request could accept H1 and remove Q after a losing request's H0 snapshot but before its quarantine read, causing the loser to return `CANDIDATE_INVALID` instead of `already_accepted`. The current repair adds fresh snapshot reconciliation to both acceptance and equivalent Prepare/Accept races, with deterministic tests for winner cleanup before a losing acceptance read, winner acceptance before a racing Prepare's candidate construction, winner acceptance before a racing Prepare's final authority check, and private staging ownership across identical concurrent prepares.
 
 This repair is another authority-boundary candidate and must receive fresh independent hostile review at its final exact merged commit. Internal tests, CI and self-review cannot satisfy that gate.
 
