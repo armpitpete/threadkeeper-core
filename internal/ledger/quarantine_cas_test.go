@@ -7,7 +7,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 )
+
+type gatedCandidateFixture struct {
+	reader    *gitledger.Reader
+	head      string
+	candidate *WriteCandidate
+}
 
 func preparedQuarantineCandidate(t *testing.T) (*gatedCandidateFixture, []byte) {
 	t.Helper()
@@ -25,16 +33,6 @@ func preparedQuarantineCandidate(t *testing.T) (*gatedCandidateFixture, []byte) 
 		t.Fatalf("unexpected prepare result candidate=%#v accepted=%#v", candidate, accepted)
 	}
 	return &gatedCandidateFixture{reader: r, head: head, candidate: candidate}, event
-}
-
-type gatedCandidateFixture struct {
-	reader    interface {
-		Head(context.Context) (string, error)
-		ReadFile(context.Context, string, string) ([]byte, error)
-		CandidateQuarantineDir() string
-	}
-	head      string
-	candidate *WriteCandidate
 }
 
 func TestPrepareMaterialisesExactBytesThroughQuarantine(t *testing.T) {
@@ -69,7 +67,7 @@ func TestAcceptanceFailsClosedWhenQuarantineEntryMissing(t *testing.T) {
 	if err := os.Remove(qPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader.(*gitledger.Reader), *fixture.candidate); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
+	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader, *fixture.candidate); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
 		t.Fatalf("expected missing quarantine rejection, got %v", err)
 	}
 	assertHeadUnchanged(t, fixture)
@@ -81,7 +79,7 @@ func TestAcceptanceFailsClosedWhenQuarantineBytesChange(t *testing.T) {
 	if err := os.WriteFile(qPath, []byte("tampered"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader.(*gitledger.Reader), *fixture.candidate); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
+	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader, *fixture.candidate); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
 		t.Fatalf("expected tampered quarantine rejection, got %v", err)
 	}
 	assertHeadUnchanged(t, fixture)
@@ -91,7 +89,7 @@ func TestAcceptanceRejectsSubstitutedQuarantineHandle(t *testing.T) {
 	fixture, _ := preparedQuarantineCandidate(t)
 	forged := *fixture.candidate
 	forged.Quarantine.ID += "x"
-	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader.(*gitledger.Reader), forged); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
+	if _, err := AcceptWriteCandidate(context.Background(), fixture.reader, forged); err == nil || !strings.Contains(err.Error(), "CANDIDATE_INVALID") {
 		t.Fatalf("expected substituted quarantine handle rejection, got %v", err)
 	}
 	assertHeadUnchanged(t, fixture)
@@ -103,7 +101,7 @@ func TestAcceptedCandidateQuarantineIsRemoved(t *testing.T) {
 	if _, err := os.Stat(qPath); err != nil {
 		t.Fatal(err)
 	}
-	response, err := AcceptWriteCandidate(context.Background(), fixture.reader.(*gitledger.Reader), *fixture.candidate)
+	response, err := AcceptWriteCandidate(context.Background(), fixture.reader, *fixture.candidate)
 	if err != nil {
 		t.Fatal(err)
 	}
