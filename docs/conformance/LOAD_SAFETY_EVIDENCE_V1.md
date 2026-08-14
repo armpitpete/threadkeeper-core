@@ -14,7 +14,7 @@ This matrix maps the Core v1 load-safety acceptance clauses to inspectable imple
 | 6 | Cancellation/timeouts cannot create a successful-looking partial transition. | `TestCancelledPrepareCannotMutateAuthority`; Issue #25 cleanup races; Issue #32 prepare-bound/read and ref-lock uncertainty regressions; final Issue #36 hostile PASS of post-CAS reporting. | Semantic gate covered; final production E2E includes restart/retry recovery. |
 | 7 | Bounded overload is explicit. | `internal/service/limiter_test.go`; `internal/service/load_concurrency_test.go::TestLimiterNeverAdmitsBeyondCapacityUnderBurst` proves exactly capacity admissions and explicit `ErrOverloaded` for the synchronized excess. | Actual service limit must be selected and recorded for production. |
 | 8 | Restore/replay under load preserves exact projection/recovery identity. | `internal/ledger/recovery_proof_test.go::TestRecoveryProofSurvivesDestructiveBareRestore`; `internal/ledger/load_restore_test.go::TestRestoredCopiesPreserveRecoveryProofUnderLoad` requires multiple restored copies to reproduce the exact original RecoveryProof concurrently. | **Independent-secondary operational restore remains open.** Local copies prove machinery/semantics only. |
-| 9 | Resource growth is bounded for the declared envelope. | `internal/loadproof` measures sampled peak and settled Go heap allocation, goroutines and process descriptors/handles; `TestReferenceReadLoadEnvelopePreservesRecoveryProof` runs the repository reference envelope; `ledger-load-proof` runs an operator-supplied envelope against a real ledger. | **Open until measured on the actual production-shaped deployment.** CI reference ceilings are not capacity claims. |
+| 9 | Resource growth is bounded for the declared envelope. | `internal/loadproof` measures sampled peak and settled Go heap allocation, goroutines and process descriptors/handles; required handle metrics must be present at every sampled observation or the proof fails; `TestReferenceReadLoadEnvelopePreservesRecoveryProof` runs the repository reference envelope; `ledger-load-proof` runs an operator-supplied envelope against a real ledger. | **Open until measured on the actual production-shaped deployment.** CI reference ceilings are not capacity claims. |
 | 10 | Hard authority-write disable remains effective under concurrency. | `internal/service/load_concurrency_test.go::TestAuthorityWriteKillSwitchDominatesUnderConcurrency` runs 128 concurrent admissions with a nil Reader; every call must return `AUTHORITY_WRITES_DISABLED`, proving the gate fires before ledger/policy/auth work. | Must remain hard false throughout deployment and E2E until the final separately reviewed enablement decision. |
 
 ## Reference resource envelope
@@ -31,9 +31,9 @@ This matrix maps the Core v1 load-safety acceptance clauses to inspectable imple
 - settled descriptor/handle growth <= 16;
 - descriptor/handle metric required.
 
-The resource monitor samples every 5 ms and reports that interval in its machine-readable evidence. `heap_alloc_bytes` is Go live heap allocation from `runtime.MemStats`, **not RSS or total machine memory**. Descriptor/handle counts are process-global and may conservatively fail if unrelated work in the same process increases them during the measurement.
+The resource monitor samples every 5 ms and reports both the total resource-sample count and the number of samples for which the open-handle metric was unavailable. A required metric must be present at **every sampled observation**; a transient sampled measurement gap is a proof failure rather than something a later successful sample can erase. `heap_alloc_bytes` is Go live heap allocation from `runtime.MemStats`, **not RSS or total machine memory**. Descriptor/handle counts are process-global and may conservatively fail if unrelated work in the same process increases them during the measurement.
 
-Reference conformance establishes that the implementation has bounded observable growth under that exact workload. It does not establish maximum throughput, latency, host sizing or production capacity.
+The sampled peak is not a mathematically continuous maximum between observations. Reference conformance establishes bounded observable growth under that exact sampled workload. It does not establish maximum throughput, latency, host sizing or production capacity.
 
 ## Production acceptance handoff
 
@@ -43,6 +43,6 @@ The production operator must provide a strict JSON envelope with the real select
 threadkeeper-core ledger-load-proof <ledger.git> <envelope.json> [authoritative-ref]
 ```
 
-The resulting JSON binds the measured resource evidence to the exact RecoveryProof of the ledger used for the run. `passed: true` is necessary for the production load gate but does not by itself enable authority writes.
+The resulting JSON binds the measured resource evidence to the exact RecoveryProof of the ledger used for the run. `passed: true`, zero required-metric unavailable samples, and the complete declared operation count are necessary for the production load gate but do not by themselves enable authority writes.
 
 The independent-secondary restore gate and full production-shaped E2E gate remain separate.
