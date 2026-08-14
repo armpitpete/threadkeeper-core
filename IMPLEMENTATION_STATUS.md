@@ -61,14 +61,17 @@ Installed:
 
 Real production actor IDs/public keys/grants remain deployment inputs and have not been selected by the code lane.
 
-## Load/resource proof candidate under review
+## Load/resource proof machinery installed
 
-Issue #43 / PR #44 adds the remaining code-side load/resource proof machinery without claiming production capacity:
+Issue #43 / PR #44 merged as `46f476fd4e0a346e45034310c423f6c1cd592f65` after exact-head conformance #227 and hostile self-review.
 
-- strict explicit load/resource envelopes with no silent defaults;
+Installed:
+
+- strict explicit load/resource envelopes with every machine-readable field required and no silent zero/false defaults;
 - sampled peak and settled Go heap/goroutine/process descriptor-or-handle evidence;
+- fail-closed accounting for any sampled required handle-metric gap;
 - Linux `/proc/self/fd` and Windows `GetProcessHandleCount` process metrics;
-- a repository/CI reference envelope explicitly separated from production sizing;
+- repository/CI reference envelope explicitly separated from production sizing;
 - concurrent full `ProveRecovery` replay requiring exact baseline RecoveryProof equivalence;
 - restored-copy replay-under-load equivalence proof;
 - synchronized limiter burst proof with explicit overload rather than unbounded queueing;
@@ -77,7 +80,23 @@ Issue #43 / PR #44 adds the remaining code-side load/resource proof machinery wi
 - load-safety evidence matrix and production runbook;
 - checkpoint acceleration clarified as conditional/optional: full replay remains authoritative while acceleration is disabled.
 
-Passing this lane will close **load-proof machinery only**. The actual production load/resource envelope remains open until the real production-shaped deployment supplies and passes its reviewed envelope.
+The **actual production** load/resource envelope remains open until the real deployment supplies and passes its reviewed envelope.
+
+## Write-disabled E2E acceptance candidate under review
+
+Issue #47 / PR #48 adds one deterministic code-side composition proof while keeping the exported write path closed:
+
+- supported Fresh Genesis creation with exact test ledger/actor/policy identity;
+- real Ed25519 signing and authentication against a ledger-derived actor-policy snapshot;
+- explicit proof that exported `AdmitAuthorityWrite` still returns `AUTHORITY_WRITES_DISABLED` before ledger/auth work;
+- one real internal candidate/quarantine/CAS H0→H1 governed transition;
+- restart with exact Genesis/actor-policy/RecoveryProof continuity;
+- exact idempotent retry resolving `already_accepted`;
+- same-key/different-content deterministic conflict with no authority movement;
+- destructive local bare-ledger restore with exact RecoveryProof/replay/projection equality;
+- final assertion that authority writes remain disabled.
+
+This is code-side composition evidence only. It does not create an enabled authenticated service write route, does not use production keys, and does not satisfy independent-secondary restore or production deployment acceptance.
 
 ## Installed assurance/read capabilities
 
@@ -113,9 +132,9 @@ The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da49
 ## Remaining protected release work
 
 1. instantiate the actual production Fresh Genesis ledger with approved real actor public keys/grants and prove ledger/quarantine filesystem ownership/non-user-writability on that deployment;
-2. after Issue #43 is accepted, declare and measure the **actual production** load/resource envelope using `ledger-load-proof` on that production-shaped target;
+2. declare and measure the **actual production** load/resource envelope using `ledger-load-proof` on that production-shaped target;
 3. perform destructive restore from an independently operated secondary backup location and prove exact Genesis/actor-policy/head/replay/projection equivalence;
-4. run full production-shaped end-to-end acceptance: fresh install → Genesis → authoritative policy → authenticate → write → restart → retry → conflict → independent restore → replay;
+4. run full production-shaped end-to-end acceptance using the actual deployment and approved signing key; the write-disabled code-side E2E harness does not replace this operational gate;
 5. only then consider removing `AUTHORITY_WRITES_DISABLED` through a separately reviewed release decision.
 
 No public authority-write transport is currently enabled.
