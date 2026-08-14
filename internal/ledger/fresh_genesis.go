@@ -13,17 +13,17 @@ import (
 )
 
 type FreshGenesisEvidence struct {
-	StoragePath             string `json:"storage_path"`
-	ProjectID               string `json:"project_id"`
-	LedgerID                string `json:"ledger_id"`
-	AuthoritativeRef        string `json:"authoritative_ref"`
-	GenesisContentSHA256    string `json:"genesis_content_sha256"`
+	StoragePath              string `json:"storage_path"`
+	ProjectID                string `json:"project_id"`
+	LedgerID                 string `json:"ledger_id"`
+	AuthoritativeRef         string `json:"authoritative_ref"`
+	GenesisContentSHA256     string `json:"genesis_content_sha256"`
 	ActorPolicyContentSHA256 string `json:"actor_policy_content_sha256"`
-	GenesisCommit           string `json:"genesis_commit"`
-	LedgerCommit            string `json:"ledger_commit"`
-	GitObjectFormat         string `json:"git_object_format"`
-	InitialSchemaCount      int    `json:"initial_schema_count"`
-	InitialBindingCount     int    `json:"initial_binding_count"`
+	GenesisCommit            string `json:"genesis_commit"`
+	LedgerCommit             string `json:"ledger_commit"`
+	GitObjectFormat          string `json:"git_object_format"`
+	InitialSchemaCount       int    `json:"initial_schema_count"`
+	InitialBindingCount      int    `json:"initial_binding_count"`
 }
 
 // InitializeFreshGenesis creates a brand-new dedicated authority ledger whose
@@ -31,7 +31,9 @@ type FreshGenesisEvidence struct {
 // immutable configuration. The target is create-only; existing paths are never
 // adopted or overwritten. Success is returned only after the new repository is
 // reopened through the hardened reader and the complete Replay/FSCK path proves
-// the exact Genesis and actor-policy identity.
+// the exact Genesis and actor-policy identity. The supported production
+// bootstrap additionally requires the actor-policy reducer binding so trusted
+// keys/grants can later be rotated or revoked through governed events.
 func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis []byte, seedFiles map[string][]byte) (*FreshGenesisEvidence, error) {
 	root, err := genesis.Validate(rawGenesis)
 	if err != nil {
@@ -81,6 +83,17 @@ func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis 
 	}
 	if manifest.GenesisRoot.ProjectID != root.ProjectID || manifest.GenesisRoot.LedgerID != root.LedgerID || manifest.GenesisRoot.ContentSHA256 != root.ContentSHA256 {
 		return nil, fmt.Errorf("FRESH_GENESIS_VERIFICATION_FAILED: replayed Genesis identity differs from validated input")
+	}
+	registry, err := loadSchemasAt(ctx, r, createdRoot)
+	if err != nil {
+		return nil, fmt.Errorf("FRESH_GENESIS_VERIFICATION_FAILED: initial schema registry: %w", err)
+	}
+	bindings, err := policy.LoadReducerBindingsAt(ctx, r, registry, createdRoot)
+	if err != nil {
+		return nil, fmt.Errorf("FRESH_GENESIS_VERIFICATION_FAILED: initial reducer bindings: %w", err)
+	}
+	if _, ok := bindings.ByRecordKind[actorauth.PolicyRecordKind]; !ok {
+		return nil, fmt.Errorf("FRESH_GENESIS_VERIFICATION_FAILED: no reducer binding for actor policy record kind %q", actorauth.PolicyRecordKind)
 	}
 	snapshot, err := LoadCurrentActorPolicy(ctx, r)
 	if err != nil {
