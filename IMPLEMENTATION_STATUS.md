@@ -74,7 +74,7 @@ This lane does not select real production keys/grants and does not enable public
 - verified derived replay checkpoints;
 - Ed25519 external witness primitive;
 - federated references with local authority disposition;
-- deterministic portable export/import;
+- deterministic portable Core export/import;
 - build provenance model, health, incident and key-lifecycle models;
 - read-only reference CLI for assurance/recovery inspection.
 
