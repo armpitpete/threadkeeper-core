@@ -29,7 +29,7 @@ Implemented and exercised by conformance tests:
 
 Merged PR #40 / Issue #37 as `69b0c3b5f51c9891a78a623621bb64159b9672de` after exact-head conformance #165 and hostile self-review.
 
-Installed:
+Installed code-side machinery:
 
 - immutable root Genesis at `config/genesis/root.json` validated during every replay;
 - exact root schema-set and reducer-policy binding to Genesis;
@@ -39,7 +39,15 @@ Installed:
 - `fresh-genesis-init` machine-readable evidence;
 - production deployment runbook.
 
-The real production Genesis ledger has **not** yet been instantiated.
+Production Fresh Genesis is now instantiated and Issue #45 is closed PASS:
+
+- production ledger: `/var/lib/threadkeeper-core/authority/ledger.git`;
+- Genesis commit: `73fa0e66df2ae80b4b2a04247112470f6bb8e451`;
+- replay SHA-256: `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
+- independent reopen/replay + FSCK passed;
+- `/var/lib/threadkeeper-core` is `root:root` `0755`;
+- `/var/lib/threadkeeper-core/authority` is `threadkeeper-core:threadkeeper-core` `0700`;
+- no service activation or post-Genesis authority mutation is authorised.
 
 ## Authoritative actor policy installed
 
@@ -59,11 +67,13 @@ Installed:
 - exact request ledger/head binding before Ed25519 authentication/authorization;
 - `AUTHORITY_WRITES_DISABLED` still evaluated before ledger/policy/authentication work.
 
-Real production actor IDs/public keys/grants remain deployment inputs and have not been selected by the code lane.
+The production Genesis roots the accepted production actor/key identity and minimum grant selected in Issue #45. Private signing-key material remains outside GitHub, repository, CI and the production server.
 
-## Load/resource proof candidate under review
+## Load/resource proof machinery installed
 
-Issue #43 / PR #44 adds the remaining code-side load/resource proof machinery without claiming production capacity:
+Issue #43 / PR #44 merged as protected `main` `46f476fd4e0a346e45034310c423f6c1cd592f65` after exact-head conformance and hostile self-review.
+
+Installed:
 
 - strict explicit load/resource envelopes with no silent defaults;
 - sampled peak and settled Go heap/goroutine/process descriptor-or-handle evidence;
@@ -73,11 +83,28 @@ Issue #43 / PR #44 adds the remaining code-side load/resource proof machinery wi
 - restored-copy replay-under-load equivalence proof;
 - synchronized limiter burst proof with explicit overload rather than unbounded queueing;
 - 128-way concurrent proof that `AUTHORITY_WRITES_DISABLED` dominates before ledger access;
-- `ledger-load-proof` CLI for later production-envelope measurement;
+- `ledger-load-proof` CLI for production-envelope measurement;
 - load-safety evidence matrix and production runbook;
 - checkpoint acceleration clarified as conditional/optional: full replay remains authoritative while acceleration is disabled.
 
-Passing this lane will close **load-proof machinery only**. The actual production load/resource envelope remains open until the real production-shaped deployment supplies and passes its reviewed envelope.
+The actual production load/resource envelope remains OPEN. Issue #51 records the operational gate and requires explicit owner review of production concurrency/workload/resource ceilings before the read-only production measurement can be accepted.
+
+## Restore-verification candidate under review
+
+Issue #46 / PR #49 adds Core-side independent-secondary restore verification without allowing caller self-certification of operational independence.
+
+Candidate scope:
+
+- strict canonical/digest-bound secondary provenance declarations;
+- exact original RecoveryProof parsing and semantic hashing;
+- restored-ledger verification through the hardened Reader;
+- exact Genesis, actor-policy, head, replay and governed-projection RecoveryProof equality;
+- machine-readable restore reports separating Core equivalence from fixed `requires_external_review` operational-independence status;
+- read-only `recovery-restore-verify` CLI;
+- hostile regressions for malformed/contradictory provenance and altered authority state;
+- operational runbook requiring real external custody/provider/operator evidence.
+
+This candidate does not itself perform the destructive independently operated secondary restore. Issue #51 keeps that production mutation behind a new explicit owner authorization.
 
 ## Installed assurance/read capabilities
 
@@ -108,17 +135,18 @@ Historical governance remains explicit: PR #11 was owner-authorised without a ge
 
 ## Independent quarantine/CAS review status
 
-The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da493593566a6017bc49`. Independent hostile re-review Issue #36 **PASSED** that exact commit, including independently constructed real-Git CAS/ref-lock attacks. That correctness gate is closed subject to the separate production filesystem-ownership assumption.
+The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da493593566a6017bc49`. Independent hostile re-review Issue #36 **PASSED** that exact commit, including independently constructed real-Git CAS/ref-lock attacks. That correctness gate is closed subject to the separately proved production filesystem-ownership boundary.
 
 ## Remaining protected release work
 
-1. instantiate the actual production Fresh Genesis ledger with approved real actor public keys/grants and prove ledger/quarantine filesystem ownership/non-user-writability on that deployment;
-2. after Issue #43 is accepted, declare and measure the **actual production** load/resource envelope using `ledger-load-proof` on that production-shaped target;
-3. perform destructive restore from an independently operated secondary backup location and prove exact Genesis/actor-policy/head/replay/projection equivalence;
-4. run full production-shaped end-to-end acceptance: fresh install → Genesis → authoritative policy → authenticate → write → restart → retry → conflict → independent restore → replay;
-5. only then consider removing `AUTHORITY_WRITES_DISABLED` through a separately reviewed release decision.
+1. accept a reviewed production load/resource envelope and run the read-only production `ledger-load-proof` recorded in Issue #51;
+2. finish review/integration of Issue #46 / PR #49 restore-verification machinery;
+3. select and evidence a genuinely independent secondary custody boundary, then obtain new explicit authorization before any destructive production restore/replacement and prove exact recovery equivalence under Issue #51;
+4. complete the consolidated write-disabled Core v1 E2E machinery in Issue #50, including Fresh Genesis → ledger-derived actor policy → test-only authentication primitive → real quarantine/CAS → restart/retry/conflict → restore verification;
+5. run the final production-shaped acceptance sequence and separately review any service-activation candidate while `AUTHORITY_WRITES_DISABLED` remains closed;
+6. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
 
-No public authority-write transport is currently enabled.
+No public authority-write transport or long-running production service is currently enabled.
 
 Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and GUI unless separately selected.
 
