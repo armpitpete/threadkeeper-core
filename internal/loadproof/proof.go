@@ -1,27 +1,58 @@
 package loadproof
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"math"
 	"runtime"
 	"sync"
 	"time"
+
+	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
 )
 
 var ErrEnvelopeExceeded = errors.New("LOAD_RESOURCE_ENVELOPE_EXCEEDED")
 
+const sampleInterval = 5 * time.Millisecond
+
 type Envelope struct {
-	Name                         string `json:"name"`
-	ConcurrentWorkers            int    `json:"concurrent_workers"`
-	IterationsPerWorker          int    `json:"iterations_per_worker"`
-	MaxPeakHeapGrowthBytes       int64  `json:"max_peak_heap_growth_bytes"`
-	MaxSettledHeapGrowthBytes    int64  `json:"max_settled_heap_growth_bytes"`
-	MaxPeakGoroutineGrowth       int64  `json:"max_peak_goroutine_growth"`
-	MaxSettledGoroutineGrowth    int64  `json:"max_settled_goroutine_growth"`
-	MaxPeakOpenHandleGrowth      int64  `json:"max_peak_open_handle_growth"`
-	MaxSettledOpenHandleGrowth   int64  `json:"max_settled_open_handle_growth"`
-	RequireOpenHandleMetric      bool   `json:"require_open_handle_metric"`
+	Name                       string `json:"name"`
+	ConcurrentWorkers          int    `json:"concurrent_workers"`
+	IterationsPerWorker        int    `json:"iterations_per_worker"`
+	MaxPeakHeapGrowthBytes     int64  `json:"max_peak_heap_growth_bytes"`
+	MaxSettledHeapGrowthBytes  int64  `json:"max_settled_heap_growth_bytes"`
+	MaxPeakGoroutineGrowth     int64  `json:"max_peak_goroutine_growth"`
+	MaxSettledGoroutineGrowth  int64  `json:"max_settled_goroutine_growth"`
+	MaxPeakOpenHandleGrowth    int64  `json:"max_peak_open_handle_growth"`
+	MaxSettledOpenHandleGrowth int64  `json:"max_settled_open_handle_growth"`
+	RequireOpenHandleMetric    bool   `json:"require_open_handle_metric"`
+}
+
+func DecodeEnvelope(raw []byte) (Envelope, error) {
+	if err := strictjson.Validate(raw); err != nil {
+		return Envelope{}, fmt.Errorf("LOAD_RESOURCE_ENVELOPE_INVALID: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var envelope Envelope
+	if err := decoder.Decode(&envelope); err != nil {
+		return Envelope{}, fmt.Errorf("LOAD_RESOURCE_ENVELOPE_INVALID: decode: %w", err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return Envelope{}, fmt.Errorf("LOAD_RESOURCE_ENVELOPE_INVALID: trailing JSON value")
+		}
+		return Envelope{}, fmt.Errorf("LOAD_RESOURCE_ENVELOPE_INVALID: trailing data: %w", err)
+	}
+	if err := envelope.Validate(); err != nil {
+		return Envelope{}, err
+	}
+	return envelope, nil
 }
 
 func (e Envelope) Validate() error {
@@ -95,6 +126,7 @@ type Growth struct {
 
 type Evidence struct {
 	Envelope             Envelope `json:"envelope"`
+	SampleIntervalMillis int64    `json:"sample_interval_millis"`
 	Before               Snapshot `json:"before"`
 	Peak                 Snapshot `json:"peak"`
 	AfterSettled         Snapshot `json:"after_settled"`
@@ -108,8 +140,8 @@ type Workload func(context.Context, int, int) error
 
 // Run executes exactly the declared worker/iteration envelope, samples process
 // resources during execution, then forces a settled GC snapshot. Both transient
-// peak growth and post-work settled growth are checked. The evidence is pure
-// observation; it does not grant authority or infer production capacity.
+// sampled peak growth and post-work settled growth are checked. The evidence is
+// pure observation; it does not grant authority or infer production capacity.
 func Run(ctx context.Context, envelope Envelope, workload Workload) (Evidence, error) {
 	if err := envelope.Validate(); err != nil {
 		return Evidence{}, err
@@ -146,7 +178,7 @@ func Run(ctx context.Context, envelope Envelope, workload Workload) (Evidence, e
 	monitorWG.Add(1)
 	go func() {
 		defer monitorWG.Done()
-		ticker := time.NewTicker(5 * time.Millisecond)
+		ticker := time.NewTicker(sampleInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -202,13 +234,14 @@ func Run(ctx context.Context, envelope Envelope, workload Workload) (Evidence, e
 	peakMu.Unlock()
 
 	evidence := Evidence{
-		Envelope:            envelope,
-		Before:              before,
-		Peak:                finalPeak,
-		AfterSettled:        after,
-		PeakGrowth:          growth(before, finalPeak),
-		SettledGrowth:       growth(before, after),
-		CompletedOperations: completed,
+		Envelope:             envelope,
+		SampleIntervalMillis: sampleInterval.Milliseconds(),
+		Before:               before,
+		Peak:                 finalPeak,
+		AfterSettled:         after,
+		PeakGrowth:           growth(before, finalPeak),
+		SettledGrowth:        growth(before, after),
+		CompletedOperations:  completed,
 	}
 	if firstErr != nil {
 		return evidence, fmt.Errorf("LOAD_RESOURCE_WORKLOAD_FAILED: %w", firstErr)
@@ -252,9 +285,17 @@ func growth(before, after Snapshot) Growth {
 
 func signedDelta(before, after uint64) int64 {
 	if after >= before {
-		return int64(after - before)
+		delta := after - before
+		if delta > math.MaxInt64 {
+			return math.MaxInt64
+		}
+		return int64(delta)
 	}
-	return -int64(before - after)
+	delta := before - after
+	if delta > math.MaxInt64 {
+		return math.MinInt64
+	}
+	return -int64(delta)
 }
 
 func evaluate(e Evidence) error {
