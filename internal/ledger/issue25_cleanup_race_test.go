@@ -194,3 +194,84 @@ func TestIssue25PrepareRacingAcceptanceReconcilesAlreadyAccepted(t *testing.T) {
 		t.Fatalf("racing Prepare resurrected or retained accepted quarantine entry: %v", err)
 	}
 }
+
+func TestIssue25StagedPrepareRacingAcceptanceCleansStageAndRecovers(t *testing.T) {
+	r, head := candidateTestReader(t)
+	defer r.Close()
+
+	event := makeCreateCandidateEvent(t, head, "issue25-stage-race", "idem-issue25-stage-race", json.RawMessage(`{"enabled":true}`))
+	req := CandidateRequest{
+		ExpectedHead: head,
+		EventPath:    "events/governance/issue25-stage-race.json",
+		Event:        event,
+	}
+	winnerCandidate, response, err := PrepareWriteCandidate(context.Background(), r, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if winnerCandidate == nil || response != nil {
+		t.Fatalf("unexpected initial prepare candidate=%#v response=%#v", winnerCandidate, response)
+	}
+
+	boundPath := filepath.Join(r.CandidateQuarantineDir(), winnerCandidate.Quarantine.ID+".candidate")
+	stagePath := filepath.Join(r.CandidateQuarantineDir(), quarantineStageID(event)+".candidate")
+	beforeEventCommit := make(chan struct{})
+	releaseEventCommit := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releaseEventCommit) })
+
+	type prepareResult struct {
+		candidate *WriteCandidate
+		response  *WriteResponse
+		err       error
+	}
+	prepareDone := make(chan prepareResult, 1)
+	go func() {
+		candidate, response, err := prepareWriteCandidate(context.Background(), r, req, &prepareWriteHooks{
+			beforeEventCommit: func() {
+				close(beforeEventCommit)
+				<-releaseEventCommit
+			},
+		})
+		prepareDone <- prepareResult{candidate: candidate, response: response, err: err}
+	}()
+
+	// The racing Prepare has captured H0 and staged the exact bytes, but it has
+	// not yet allowed PrepareEventCommit to recheck whether H0 is still current.
+	<-beforeEventCommit
+	if _, err := os.Stat(stagePath); err != nil {
+		t.Fatalf("racing Prepare did not materialise staging entry: %v", err)
+	}
+
+	accepted, err := AcceptWriteCandidate(context.Background(), r, *winnerCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted == nil || accepted.Status != WriteStatusAccepted {
+		t.Fatalf("winner response = %#v, want accepted", accepted)
+	}
+	if _, err := os.Stat(boundPath); !os.IsNotExist(err) {
+		t.Fatalf("winner did not clean bound quarantine entry: %v", err)
+	}
+
+	releaseOnce.Do(func() { close(releaseEventCommit) })
+	prepared := <-prepareDone
+	if prepared.err != nil {
+		t.Fatalf("staged racing Prepare failed instead of recovering acceptance: %v", prepared.err)
+	}
+	if prepared.candidate != nil {
+		t.Fatalf("staged racing Prepare returned stale candidate %#v", prepared.candidate)
+	}
+	if prepared.response == nil || prepared.response.Status != WriteStatusAlreadyAccepted {
+		t.Fatalf("staged racing Prepare response = %#v, want already_accepted", prepared.response)
+	}
+	if prepared.response.AcceptedCommit != winnerCandidate.CandidateCommit {
+		t.Fatalf("staged racing Prepare accepted commit = %s want %s", prepared.response.AcceptedCommit, winnerCandidate.CandidateCommit)
+	}
+	if _, err := os.Stat(stagePath); !os.IsNotExist(err) {
+		t.Fatalf("staged racing Prepare left abandoned staging material: %v", err)
+	}
+	if _, err := os.Stat(boundPath); !os.IsNotExist(err) {
+		t.Fatalf("staged racing Prepare resurrected accepted bound quarantine: %v", err)
+	}
+}
