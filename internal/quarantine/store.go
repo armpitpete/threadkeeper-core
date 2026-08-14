@@ -42,10 +42,15 @@ func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(abs, 0o700); err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(abs, 0o700); err != nil {
+	s, err := openPinned(abs)
+	if err != nil {
 		return nil, err
 	}
-	return openPinned(abs)
+	if err := s.root.Chmod(".", 0o700); err != nil {
+		s.Close()
+		return nil, err
+	}
+	return s, nil
 }
 
 // OpenExisting pins an already-created quarantine directory without creating
