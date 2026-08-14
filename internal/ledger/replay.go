@@ -24,11 +24,11 @@ type ReplayEntry struct {
 	Sequence       int    `json:"sequence"`
 	AcceptedCommit string `json:"accepted_commit"`
 	Path           string `json:"path"`
-	EventID         string `json:"event_id"`
-	EventType       string `json:"event_type"`
-	SchemaVersion   string `json:"schema_version"`
-	ContentSHA256   string `json:"content_sha256"`
-	TargetCount     int    `json:"target_count"`
+	EventID        string `json:"event_id"`
+	EventType      string `json:"event_type"`
+	SchemaVersion  string `json:"schema_version"`
+	ContentSHA256  string `json:"content_sha256"`
+	TargetCount    int    `json:"target_count"`
 }
 
 type ReplayManifest struct {
@@ -68,9 +68,10 @@ type validatedEvent struct {
 }
 
 // Replay validates the authoritative Git history, including the immutable
-// first-commit Genesis trust root, builds a deterministic audit manifest, and
-// applies only explicitly accepted current-state reducer semantics. It remains
-// read-only and cannot advance the authoritative ref.
+// first-commit Genesis trust root and actor-auth trust policy, builds a
+// deterministic audit manifest, and applies only explicitly accepted
+// current-state reducer semantics. It remains read-only and cannot advance the
+// authoritative ref.
 func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err := r.CheckHistorySafety(ctx); err != nil {
 		return nil, err
@@ -235,6 +236,9 @@ func validateGenesisHistory(ctx context.Context, r *gitledger.Reader, history []
 		if actualSchemas[i] != root.InitialSchemas[i] {
 			return genesis.Root{}, "", fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
 		}
+	}
+	if err := validateInitialActorPolicyHistory(ctx, r, history, root); err != nil {
+		return genesis.Root{}, "", err
 	}
 
 	for _, commit := range history[1:] {
