@@ -17,29 +17,27 @@ func AuthorityWritesEnabled() bool { return false }
 
 func RequireAuthorityWritesEnabled() error { return ErrAuthorityWritesDisabled }
 
-type actorPolicyLoader func(context.Context, *gitledger.Reader) (*ledger.ActorPolicySnapshot, error)
-
 // AdmitAuthorityWrite is the service-level admission boundary for any future
-// authority-changing transport. The global release gate is evaluated first.
-// Only after that gate is deliberately opened does Core replay the supplied
-// authoritative ledger, derive the current trusted actor policy from that exact
-// snapshot, bind the proof to its ledger/head, and authenticate/authorise.
-// Callers cannot inject an alternate actorauth.Policy.
+// authority-changing transport. The hard release gate is evaluated before any
+// ledger read, policy load, authentication or authorization work. Callers
+// cannot inject an alternate actorauth.Policy.
 func AdmitAuthorityWrite(ctx context.Context, r *gitledger.Reader, proof actorauth.Proof, expected actorauth.RequestContext, now time.Time) (actorauth.Principal, error) {
-	return admitAuthorityWrite(AuthorityWritesEnabled(), ledger.LoadCurrentActorPolicy, ctx, r, proof, expected, now)
-}
-
-func admitAuthorityWrite(enabled bool, load actorPolicyLoader, ctx context.Context, r *gitledger.Reader, proof actorauth.Proof, expected actorauth.RequestContext, now time.Time) (actorauth.Principal, error) {
-	if !enabled {
-		return actorauth.Principal{}, ErrAuthorityWritesDisabled
+	if err := RequireAuthorityWritesEnabled(); err != nil {
+		return actorauth.Principal{}, err
 	}
-	if load == nil {
-		return actorauth.Principal{}, fmt.Errorf("AUTH_POLICY_INVALID: actor policy loader is required")
-	}
-	snapshot, err := load(ctx, r)
+	snapshot, err := ledger.LoadCurrentActorPolicy(ctx, r)
 	if err != nil {
 		return actorauth.Principal{}, err
 	}
+	return authenticateAuthoritativePolicySnapshot(snapshot, proof, expected, now)
+}
+
+// authenticateAuthoritativePolicySnapshot is a pure admission check over a
+// snapshot already derived from authoritative ledger state. It is separated so
+// ledger/head binding can be unit-tested while the global write kill-switch is
+// hard false. It does not load policy, move authority, expose a transport or
+// bypass RequireAuthorityWritesEnabled.
+func authenticateAuthoritativePolicySnapshot(snapshot *ledger.ActorPolicySnapshot, proof actorauth.Proof, expected actorauth.RequestContext, now time.Time) (actorauth.Principal, error) {
 	if snapshot == nil {
 		return actorauth.Principal{}, fmt.Errorf("AUTH_POLICY_INVALID: actor policy snapshot is nil")
 	}
