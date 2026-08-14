@@ -16,7 +16,7 @@ Do not claim production load acceptance until the actual deployment has identifi
 
 The envelope must be an explicit reviewed JSON document. Do not substitute `loadproof.ReferenceEnvelope()` for production merely because CI passes.
 
-For production on Linux or Windows, set `require_open_handle_metric: true`. A missing required metric is a proof failure rather than permission to ignore descriptor/handle growth.
+For production on Linux or Windows, set `require_open_handle_metric: true`. A missing required metric at any sampled observation is a proof failure rather than permission to ignore descriptor/handle growth.
 
 ## Envelope fields
 
@@ -63,9 +63,10 @@ The command:
 4. performs complete `ProveRecovery` / authoritative replay on every operation;
 5. requires every operation to equal the exact baseline RecoveryProof;
 6. samples Go live heap, goroutine count and process descriptor/handle count every 5 ms;
-7. forces a settled post-work GC snapshot;
-8. checks sampled peak and settled growth against the supplied ceilings;
-9. emits machine-readable RecoveryProof + resource evidence.
+7. records the total resource-sample count and any sampled open-handle metric gaps;
+8. forces a settled post-work GC snapshot;
+9. checks sampled peak and settled growth against the supplied ceilings;
+10. emits machine-readable RecoveryProof + resource evidence.
 
 The command is read-only. A proof failure must not trigger a write or an automatic relaxation of the envelope.
 
@@ -76,11 +77,13 @@ Require all of the following:
 - the RecoveryProof identifies the expected production ledger/Genesis/actor-policy state;
 - `completed_operations == concurrent_workers * iterations_per_worker`;
 - `passed == true`;
-- required descriptor/handle metrics are available before, during and after the run;
+- `resource_samples` records the observations used by the proof;
+- when `require_open_handle_metric` is true, `open_handle_metric_unavailable_samples == 0`;
+- required descriptor/handle metrics are available at every sampled observation before, during and after the run;
 - sampled peak growth and settled growth are within every supplied ceiling;
 - no replay divergence occurs.
 
-`heap_alloc_bytes` is Go live heap allocation, not process RSS or total system memory. The 5 ms monitor provides a sampled peak rather than a mathematically continuous maximum. Production host telemetry may be retained alongside this proof when RSS/CPU/IO/latency capacity evidence is desired, but it must not replace the Core proof of replay identity and process-resource boundedness.
+`heap_alloc_bytes` is Go live heap allocation, not process RSS or total system memory. The 5 ms monitor provides a sampled peak rather than a mathematically continuous maximum between observations. Production host telemetry may be retained alongside this proof when RSS/CPU/IO/latency capacity evidence is desired, but it must not replace the Core proof of replay identity and process-resource boundedness.
 
 ## Repeat and failure rules
 
