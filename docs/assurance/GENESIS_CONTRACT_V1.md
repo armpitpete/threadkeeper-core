@@ -16,10 +16,10 @@ For a fresh v1 ledger, Genesis is not a detached validation document. It is auth
 - the root commit may also contain initial immutable schemas, reducer bindings and the initial actor-auth policy, but it may not contain durable events;
 - the exact set of schema `$id` values present in the root commit must equal `initial_schemas`;
 - every reducer binding present in the root commit must use the Genesis `initial_authority_policy` version;
-- the root actor-auth policy must exist at `config/authority/actor-policy/root.json` and its granted actor set must exactly equal Genesis `initial_authorities`;
+- the root actor-auth policy must exist at `config/authority/actor-policy/root.json`, must declare the exact Genesis `ledger_id` and `initial_authority_policy`, and its granted actor set must exactly equal Genesis `initial_authorities`;
 - later commits may not modify, remove, rename or add material under `config/genesis/` or directly mutate the root actor-policy path.
 
-`ledger.Replay` validates these properties on every authoritative replay and exposes both the Genesis root and its exact Git commit. The replay digest and recovery proof include Genesis identity, so a restored ledger with a different Genesis is not equivalent authority.
+`ledger.Replay` validates these properties on every authoritative replay and exposes both the Genesis root and its exact Git commit. It also exposes the root actor-policy version/content digest and includes them in the deterministic replay digest. Recovery proof carries the same explicit identity, so a restored ledger with a different Genesis or root actor policy is not equivalent authority.
 
 Genesis establishes the starting trust root only. It does not make later evidence authoritative, and it cannot be rewritten by later policy. Replacing a Genesis root creates a different ledger identity rather than a migration of the same ledger.
 
@@ -27,9 +27,9 @@ Genesis establishes the starting trust root only. It does not make later evidenc
 
 `initial_authority_policy` identifies the authority-policy version used by root reducer bindings. `initial_authorities` is not decorative metadata: it must equal the set of actors granted authority by the canonical root actor policy.
 
-The actor-policy value contains bounded proof lifetime, trusted Ed25519 keys and exact action/target grants. `ledger_id` is supplied by Genesis context rather than duplicated inside the mutable policy value, so a policy value cannot claim a different trust domain.
+The actor-policy value contains its exact `ledger_id`, exact `authority_policy_version`, bounded proof lifetime, trusted Ed25519 keys and exact action/target grants. Those identity fields are part of the canonical digest-bound bytes and must match Genesis. Supplying different runtime context cannot transplant the same policy bytes into another trust domain.
 
-The root actor policy is the starting policy. Later key/grant rotation is performed only through governed events at target `authority:actor-policy` with record kind `core.actor-auth-policy-v1`; direct file mutation remains forbidden. A governed policy revocation fails closed and does not fall back to the root policy.
+The root actor policy is the starting policy. Later key/grant rotation is performed only through governed events at target `authority:actor-policy` with record kind `core.actor-auth-policy-v1`; direct file mutation remains forbidden. Governed create/replacement values must declare the same ledger and accepted authority-policy version and are rejected during replay/prepare before CAS if they do not. A governed policy revocation fails closed and does not fall back to the root policy.
 
 ## Fresh bootstrap boundary
 
@@ -39,14 +39,14 @@ Bootstrap seed material is restricted to initial immutable schema/reducer-bindin
 
 The supported production bootstrap additionally requires:
 
-- the canonical root actor policy;
+- the canonical root actor policy bound to the exact Genesis ledger/policy identity;
 - the exclusive governed-record event schema;
 - the reducer-binding schema;
 - a reducer binding for `core.actor-auth-policy-v1` using the Genesis authority-policy version.
 
 This prevents creating a production trust policy that cannot later be rotated or revoked through the governed write path.
 
-A failed bootstrap may leave incomplete create-only residue, but that residue is not accepted as a production ledger unless normal replay validates it.
+All semantic seed validation occurs before target creation. A failed semantic bootstrap validation therefore leaves no newly created ledger path. Failures after repository creation still do not qualify as production success unless normal replay verifies the exact expected identity.
 
 The bootstrap result is machine-readable evidence binding the actual storage path, project ID, ledger ID, authoritative ref, Genesis content digest, actor-policy content digest, Genesis/root commit, ledger head, Git object format and initial schema/binding counts.
 
