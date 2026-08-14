@@ -14,14 +14,18 @@ import (
 )
 
 var (
-	ErrStaleState            = errors.New("STALE_STATE")
-	ErrCandidateNotChild     = errors.New("CANDIDATE_NOT_EXACT_CHILD")
-	ErrCASOutcomeUnknown     = errors.New("POST_CAS_RECOVERY_REQUIRED")
-	ErrPostCASVerification   = errors.New("POST_CAS_VERIFICATION_FAILED")
+	ErrStaleState             = errors.New("STALE_STATE")
+	ErrCandidateNotChild      = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrCASOutcomeUnknown      = errors.New("POST_CAS_RECOVERY_REQUIRED")
+	ErrPostCASVerification    = errors.New("POST_CAS_VERIFICATION_FAILED")
 	ErrCASAcceptanceRecovered = fmt.Errorf("%w: CAS_ACCEPTANCE_RECOVERED", ErrStaleState)
 )
 
-const casRecoveryTimeout = 30 * time.Second
+const (
+	casRecoveryTimeout          = 30 * time.Second
+	casContentionSettleTimeout  = time.Second
+	casContentionRetryInterval  = 10 * time.Millisecond
+)
 
 type CandidateCommit struct {
 	ExpectedHead string
@@ -34,6 +38,12 @@ type CandidateCommit struct {
 type recoveredCASState struct {
 	Head               string
 	CandidateInHistory bool
+}
+
+// Internal deterministic instrumentation for hostile CAS race tests.
+// Production callers always use nil hooks.
+type compareAndSwapHooks struct {
+	afterInitialUpdateErrorRecovery func(recoveredCASState)
 }
 
 // PrepareEventCommit creates Git objects for exactly one new durable event
@@ -160,6 +170,10 @@ func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candida
 // Once update-ref is invoked, outcome recovery no longer depends on the caller
 // context: that context may be cancelled after Git has already moved authority.
 func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateCommit string) error {
+	return r.compareAndSwap(ctx, expectedHead, candidateCommit, nil)
+}
+
+func (r *Reader) compareAndSwap(ctx context.Context, expectedHead, candidateCommit string, hooks *compareAndSwapHooks) error {
 	if !isObjectID(expectedHead) || !isObjectID(candidateCommit) {
 		return fmt.Errorf("invalid compare-and-swap object id")
 	}
@@ -217,8 +231,25 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 			return fmt.Errorf("%w: candidate %s is present in recovered authoritative history after update-ref error: %v", ErrCASAcceptanceRecovered, candidateCommit, updateErr)
 		}
 		if recovered.Head == expectedHead {
-			// The exact ref is still H0, so this invocation did not accept H1.
-			return updateErr
+			// A failed update-ref while H0 is still visible is not proof that no
+			// identical writer is currently holding the ref lock and will publish H1
+			// immediately afterwards. Give that ambiguity a detached bounded settle
+			// window; if it still cannot be resolved, return explicit unknown rather
+			// than an ordinary write failure.
+			if hooks != nil && hooks.afterInitialUpdateErrorRecovery != nil {
+				hooks.afterInitialUpdateErrorRecovery(recovered)
+			}
+			settled, settleErr := r.settleStateAfterCASContention(expectedHead, candidateCommit)
+			if settleErr != nil {
+				return fmt.Errorf("%w: update-ref returned %v; contention recovery failed: %v", ErrCASOutcomeUnknown, updateErr, settleErr)
+			}
+			if settled.CandidateInHistory {
+				return fmt.Errorf("%w: candidate %s appeared in authoritative history during contention recovery after update-ref error: %v", ErrCASAcceptanceRecovered, candidateCommit, updateErr)
+			}
+			if settled.Head != expectedHead {
+				return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, settled.Head)
+			}
+			return fmt.Errorf("%w: update-ref returned %v; authoritative ref remained %s through contention recovery window", ErrCASOutcomeUnknown, updateErr, expectedHead)
 		}
 		// Another exact-head writer won H0 and H1 is absent from the resulting
 		// authoritative history.
@@ -241,6 +272,10 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 func (r *Reader) recoverStateAfterCAS(candidateCommit string) (recoveredCASState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), casRecoveryTimeout)
 	defer cancel()
+	return r.recoverStateAfterCASContext(ctx, candidateCommit)
+}
+
+func (r *Reader) recoverStateAfterCASContext(ctx context.Context, candidateCommit string) (recoveredCASState, error) {
 	if err := r.CheckHistorySafety(ctx); err != nil {
 		return recoveredCASState{}, fmt.Errorf("repository safety check: %w", err)
 	}
@@ -263,6 +298,38 @@ func (r *Reader) recoverStateAfterCAS(candidateCommit string) (recoveredCASState
 		}
 	}
 	return state, nil
+}
+
+// settleStateAfterCASContention resolves the narrow state in which update-ref
+// returned an error but a detached recovery still saw H0. A legitimate writer
+// may still own the Git ref lock and publish immediately afterwards. Poll only
+// for a bounded interval; an unchanged H0 at the deadline remains ambiguous and
+// is reported by the caller as POST_CAS_RECOVERY_REQUIRED.
+func (r *Reader) settleStateAfterCASContention(expectedHead, candidateCommit string) (recoveredCASState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), casContentionSettleTimeout)
+	defer cancel()
+	ticker := time.NewTicker(casContentionRetryInterval)
+	defer ticker.Stop()
+
+	var last recoveredCASState
+	for {
+		state, err := r.recoverStateAfterCASContext(ctx, candidateCommit)
+		if err != nil {
+			if ctx.Err() != nil {
+				return last, fmt.Errorf("contention recovery deadline: %w", ctx.Err())
+			}
+			return last, err
+		}
+		last = state
+		if state.CandidateInHistory || state.Head != expectedHead {
+			return state, nil
+		}
+		select {
+		case <-ctx.Done():
+			return last, nil
+		case <-ticker.C:
+		}
+	}
 }
 
 func (r *Reader) verifyExactChild(ctx context.Context, expectedHead, candidateCommit string) error {
@@ -354,7 +421,6 @@ func validateEventPath(p string) error {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
 				return fmt.Errorf("invalid durable event path %q", p)
 			}
-		}
 	}
 	return nil
 }
