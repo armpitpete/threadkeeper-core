@@ -199,6 +199,14 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	if manifest.LedgerCommit != strings.ToLower(candidate.ExpectedHead) {
 		return nil, fmt.Errorf("%w: expected %s current %s", gitledger.ErrStaleState, candidate.ExpectedHead, manifest.LedgerCommit)
 	}
+
+	// Preserve the pre-quarantine hostile checks as defense in depth. Candidates
+	// with an already-known logical event ID or malformed Git event structure
+	// fail on those exact properties. Any candidate that survives these checks
+	// must still pass quarantine verification before CAS can run.
+	if err := preflightCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
+		return nil, err
+	}
 	if err := validateQuarantineHandle(candidate); err != nil {
 		return nil, err
 	}
@@ -277,29 +285,15 @@ func recoverCandidateAfterStaleCAS(ctx context.Context, r *gitledger.Reader, can
 	return responseFromAccepted(WriteStatusAlreadyAccepted, afterRace.LedgerCommit, traced), nil
 }
 
-func validateQuarantineHandle(candidate WriteCandidate) error {
-	if candidate.Quarantine.ID == "" || candidate.Quarantine.ID != candidate.ContentSHA256 || candidate.Quarantine.ContentSHA256 == "" || candidate.Quarantine.Size <= 0 {
-		return fmt.Errorf("%w: candidate handle lacks matching quarantine identity", ErrCandidateInvalid)
-	}
-	return nil
-}
-
-func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate, quarantined []byte) error {
+func preflightCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate) error {
 	if candidate.IdempotencyKey == "" || candidate.EventID == "" || candidate.ContentSHA256 == "" {
 		return fmt.Errorf("%w: candidate handle lacks durable identity", ErrCandidateInvalid)
-	}
-	if err := validateQuarantineHandle(candidate); err != nil {
-		return err
 	}
 	if err := requireEventIDAvailable(manifest, candidate.EventID); err != nil {
 		return err
 	}
 	if err := r.VerifyEventCandidate(ctx, manifest.LedgerCommit, candidate.CandidateCommit, candidate.EventPath); err != nil {
 		return fmt.Errorf("%w: Git candidate verification: %v", ErrCandidateInvalid, err)
-	}
-	registry, err := loadSchemasAt(ctx, r, manifest.LedgerCommit)
-	if err != nil {
-		return err
 	}
 	additions, err := r.EventAdditions(ctx, candidate.CandidateCommit)
 	if err != nil {
@@ -308,12 +302,37 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 	if len(additions) != 1 || additions[0].Path != candidate.EventPath {
 		return fmt.Errorf("%w: candidate event path mismatch", ErrCandidateInvalid)
 	}
+	return nil
+}
+
+func validateQuarantineHandle(candidate WriteCandidate) error {
+	if candidate.Quarantine.ID == "" || candidate.Quarantine.ID != candidate.ContentSHA256 || candidate.Quarantine.ContentSHA256 == "" || candidate.Quarantine.Size <= 0 {
+		return fmt.Errorf("%w: candidate handle lacks matching quarantine identity", ErrCandidateInvalid)
+	}
+	return nil
+}
+
+func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate, quarantined []byte) error {
+	if err := preflightCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
+		return err
+	}
+	if err := validateQuarantineHandle(candidate); err != nil {
+		return err
+	}
+	registry, err := loadSchemasAt(ctx, r, manifest.LedgerCommit)
+	if err != nil {
+		return err
+	}
 	stored, err := r.ReadFile(ctx, candidate.CandidateCommit, candidate.EventPath)
 	if err != nil {
 		return err
 	}
 	if !bytes.Equal(stored, quarantined) {
 		return fmt.Errorf("%w: Git candidate bytes differ from quarantined bytes", ErrCandidateInvalid)
+	}
+	additions, err := r.EventAdditions(ctx, candidate.CandidateCommit)
+	if err != nil {
+		return err
 	}
 	validated, err := validateEvent(ctx, r, registry, additions[0])
 	if err != nil {
