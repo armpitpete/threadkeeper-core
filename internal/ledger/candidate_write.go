@@ -66,6 +66,12 @@ type candidateDocument struct {
 	Document       eventDocument
 }
 
+// acceptWriteHooks is internal deterministic instrumentation for hostile race
+// tests. Production callers always use a nil hook set.
+type acceptWriteHooks struct {
+	beforeQuarantineRead func()
+}
+
 // PrepareWriteCandidate validates a fully formed durable event against the
 // exact current ledger state. It first stages the exact validated bytes in the
 // ledger-bound quarantine, creates the deterministic unreachable Git candidate
@@ -212,6 +218,10 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 // prepared H0/H1/path identity and matched to the Git object. It is not exposed
 // by the CLI while the service write gate remains disabled.
 func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate WriteCandidate) (*WriteResponse, error) {
+	return acceptWriteCandidate(ctx, r, candidate, nil)
+}
+
+func acceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate WriteCandidate, hooks *acceptWriteHooks) (*WriteResponse, error) {
 	manifest, err := Replay(ctx, r)
 	if err != nil {
 		return nil, err
@@ -238,34 +248,41 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 		return nil, fmt.Errorf("%w: expected %s current %s", gitledger.ErrStaleState, candidate.ExpectedHead, manifest.LedgerCommit)
 	}
 
-	// Preserve the pre-quarantine hostile checks as defense in depth. Candidates
-	// with an already-known logical event ID or malformed Git event structure
-	// fail on those exact properties. Any candidate that survives these checks
-	// must still pass exact quarantine binding verification before CAS can run.
+	// Any failure from this point until CAS is evaluated against a fresh
+	// authoritative snapshot before it is returned. Another identical invocation
+	// may have accepted and cleaned the shared quarantine entry after the H0
+	// snapshot above was captured.
 	if err := preflightCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
-		return nil, err
+		return recoverAfterPreCASFailure(r, candidate, err)
 	}
 	if err := validateQuarantineHandle(candidate); err != nil {
-		return nil, err
+		return recoverAfterPreCASFailure(r, candidate, err)
 	}
 	q, err := r.OpenExistingCandidateQuarantine()
 	if err != nil {
-		return nil, fmt.Errorf("%w: open existing quarantine: %v", ErrCandidateInvalid, err)
+		originalErr := fmt.Errorf("%w: open existing quarantine: %v", ErrCandidateInvalid, err)
+		return recoverAfterPreCASFailure(r, candidate, originalErr)
 	}
 	defer q.Close()
+	if hooks != nil && hooks.beforeQuarantineRead != nil {
+		hooks.beforeQuarantineRead()
+	}
 	quarantined, err := q.Read(candidate.Quarantine)
 	if err != nil {
-		return nil, fmt.Errorf("%w: read quarantined candidate: %v", ErrCandidateInvalid, err)
+		originalErr := fmt.Errorf("%w: read quarantined candidate: %v", ErrCandidateInvalid, err)
+		return recoverAfterPreCASFailure(r, candidate, originalErr)
 	}
 	qDoc, err := parseCandidateDocument(quarantined)
 	if err != nil {
-		return nil, fmt.Errorf("%w: quarantined candidate document: %v", ErrCandidateInvalid, err)
+		originalErr := fmt.Errorf("%w: quarantined candidate document: %v", ErrCandidateInvalid, err)
+		return recoverAfterPreCASFailure(r, candidate, originalErr)
 	}
 	if qDoc.EventID != candidate.EventID || qDoc.IdempotencyKey != candidate.IdempotencyKey || qDoc.ContentSHA256 != candidate.ContentSHA256 {
-		return nil, fmt.Errorf("%w: quarantine identity does not match candidate handle", ErrCandidateInvalid)
+		originalErr := fmt.Errorf("%w: quarantine identity does not match candidate handle", ErrCandidateInvalid)
+		return recoverAfterPreCASFailure(r, candidate, originalErr)
 	}
 	if err := validateCandidateForAcceptance(ctx, r, manifest, candidate, quarantined); err != nil {
-		return nil, err
+		return recoverAfterPreCASFailure(r, candidate, err)
 	}
 
 	casErr := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit)
@@ -341,6 +358,30 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 
 func newPostAcceptanceRecoveryContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), postAcceptanceRecoveryTimeout)
+}
+
+// recoverAfterPreCASFailure prevents an H0 snapshot from turning a concurrent
+// durable acceptance into an ordinary candidate/quarantine failure. Missing or
+// invalid quarantine remains a hard failure unless a fresh authoritative replay
+// proves that the exact logical request is already durably accepted.
+func recoverAfterPreCASFailure(r *gitledger.Reader, candidate WriteCandidate, originalErr error) (*WriteResponse, error) {
+	if candidate.IdempotencyKey == "" {
+		return nil, originalErr
+	}
+	recoveryCtx, cancel := newPostAcceptanceRecoveryContext()
+	defer cancel()
+	response, recoveryErr := recoverCandidateAfterStaleCAS(recoveryCtx, r, candidate)
+	if recoveryErr != nil {
+		if errors.Is(recoveryErr, ErrIdempotencyConflict) {
+			return nil, recoveryErr
+		}
+		unknown := responseFromCandidate(WriteStatusAcceptanceUnknown, candidate, false, "")
+		return unknown, fmt.Errorf("CONCURRENT_ACCEPTANCE_RECOVERY_REQUIRED: pre-CAS failure %v; authoritative recovery failed: %w", originalErr, recoveryErr)
+	}
+	if response != nil {
+		return response, nil
+	}
+	return nil, originalErr
 }
 
 // recoverCandidateAfterStaleCAS replays the new exact head after a CAS race.
