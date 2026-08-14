@@ -87,7 +87,11 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		if accepted.Entry.ContentSHA256 != doc.ContentSHA256 || accepted.Document.EventID != doc.EventID {
 			return nil, nil, fmt.Errorf("%w: key %q is already bound to event %q digest %s", ErrIdempotencyConflict, doc.IdempotencyKey, accepted.Document.EventID, accepted.Entry.ContentSHA256)
 		}
-		return nil, responseFromAccepted(WriteStatusAlreadyAccepted, manifest.LedgerCommit, accepted), nil
+		response := responseFromAccepted(WriteStatusAlreadyAccepted, manifest.LedgerCommit, accepted)
+		if err := cleanupAcceptedQuarantineID(r, doc.ContentSHA256); err != nil {
+			return nil, response, err
+		}
+		return nil, response, nil
 	}
 	if err := requireEventIDAvailable(manifest, doc.EventID); err != nil {
 		return nil, nil, err
@@ -329,7 +333,15 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 }
 
 func cleanupAcceptedQuarantine(r *gitledger.Reader, candidate WriteCandidate) error {
-	if candidate.Quarantine.ID == "" {
+	id := candidate.Quarantine.ID
+	if id == "" {
+		id = candidate.ContentSHA256
+	}
+	return cleanupAcceptedQuarantineID(r, id)
+}
+
+func cleanupAcceptedQuarantineID(r *gitledger.Reader, id string) error {
+	if id == "" {
 		return nil
 	}
 	q, err := r.OpenExistingCandidateQuarantine()
@@ -340,14 +352,18 @@ func cleanupAcceptedQuarantine(r *gitledger.Reader, candidate WriteCandidate) er
 		return fmt.Errorf("POST_ACCEPTANCE_QUARANTINE_CLEANUP_FAILED: %w", err)
 	}
 	defer q.Close()
-	return removeQuarantineEntry(q, candidate.Quarantine)
+	return removeQuarantineID(q, id)
 }
 
 func removeQuarantineEntry(q *quarantine.Store, entry quarantine.Entry) error {
-	if entry.ID == "" {
+	return removeQuarantineID(q, entry.ID)
+}
+
+func removeQuarantineID(q *quarantine.Store, id string) error {
+	if id == "" {
 		return nil
 	}
-	if err := q.Remove(entry.ID); err != nil {
+	if err := q.Remove(id); err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
