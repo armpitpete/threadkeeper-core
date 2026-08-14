@@ -333,11 +333,11 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 }
 
 func cleanupAcceptedQuarantine(r *gitledger.Reader, candidate WriteCandidate) error {
-	id := candidate.Quarantine.ID
-	if id == "" {
-		id = candidate.ContentSHA256
-	}
-	return cleanupAcceptedQuarantineID(r, id)
+	// The accepted event's durable content identity is the only cleanup key.
+	// Never trust a caller-supplied quarantine ID on the already-accepted path,
+	// because that path intentionally does not revalidate an obsolete candidate
+	// handle before returning the durable acceptance.
+	return cleanupAcceptedQuarantineID(r, candidate.ContentSHA256)
 }
 
 func cleanupAcceptedQuarantineID(r *gitledger.Reader, id string) error {
