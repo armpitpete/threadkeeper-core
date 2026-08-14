@@ -34,9 +34,11 @@ Trusted keys and grants are not caller/runtime authority. The initial policy is 
 
 `config/authority/actor-policy/root.json`
 
-The policy document is strict RFC 8785 canonical JSON, digest-bound, sorted and duplicate-free. Public keys are canonical raw-base64 Ed25519 keys. Each grant actor must have at least one active trusted key. The root policy's granted actor set must exactly match Genesis `initial_authorities`.
+The policy document is strict RFC 8785 canonical JSON, digest-bound, sorted and duplicate-free. Its canonical bytes explicitly declare both `ledger_id` and `authority_policy_version`; both must exactly match the authoritative Genesis trust domain. An otherwise identical key/grant set therefore cannot be transplanted into another ledger or policy version by supplying different runtime context.
 
-The root actor-policy path is immutable. Direct later file replacement/removal/rename is rejected during replay.
+Public keys are canonical raw-base64 Ed25519 keys. Each grant actor must have at least one active trusted key. The root policy's granted actor set must exactly match Genesis `initial_authorities`.
+
+The root actor-policy path is immutable. Direct later file replacement/removal/rename is rejected during replay. Replay exposes the root policy version and content digest and incorporates both into its deterministic replay digest; recovery proofs carry the same explicit identity.
 
 Current policy is derived from the exact authoritative ledger snapshot:
 
@@ -45,7 +47,7 @@ Current policy is derived from the exact authoritative ledger snapshot:
 3. later `core.record.replaced` events rotate keys/grants;
 4. `core.record.revoked` makes actor admission fail closed and does not fall back to Genesis.
 
-Actor-policy governed events use record kind `core.actor-auth-policy-v1`. Their policy value is semantically validated by the reducer before candidate acceptance/CAS, so malformed key/grant material cannot become authoritative merely because an outer event is schema-valid.
+Actor-policy governed events use record kind `core.actor-auth-policy-v1`. Their policy value is semantically validated before candidate acceptance/CAS, including exact declared `ledger_id` and `authority_policy_version`, so malformed or cross-domain policy material cannot become authoritative merely because an outer event is schema-valid.
 
 The supported Fresh Genesis bootstrap requires the initial reducer binding for this record kind, so production trust policy is rotatable/revocable rather than permanently frozen.
 
