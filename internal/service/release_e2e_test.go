@@ -240,7 +240,9 @@ func deterministicE2EKey() (ed25519.PublicKey, ed25519.PrivateKey) {
 func e2eGenesisMaterial(t *testing.T, publicKey ed25519.PublicKey) ([]byte, map[string][]byte) {
 	t.Helper()
 	actorPolicy := completeE2EJSON(t, map[string]any{
-		"max_proof_lifetime_seconds": int64(300),
+		"ledger_id":                    e2eLedgerID,
+		"authority_policy_version":     e2ePolicyVersion,
+		"max_proof_lifetime_seconds":   int64(300),
 		"keys": []map[string]any{{
 			"actor_id":   e2eActorID,
 			"key_id":     e2eKeyID,
