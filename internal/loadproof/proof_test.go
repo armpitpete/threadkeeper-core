@@ -22,7 +22,7 @@ func TestEnvelopeRejectsIncompleteOrInvertedLimits(t *testing.T) {
 	}
 }
 
-func TestDecodeEnvelopeRejectsUnknownDuplicateAndTrailingInput(t *testing.T) {
+func TestDecodeEnvelopeRejectsUnknownDuplicateMissingNullAndTrailingInput(t *testing.T) {
 	validRaw, err := json.Marshal(ReferenceEnvelope())
 	if err != nil {
 		t.Fatal(err)
@@ -40,6 +40,31 @@ func TestDecodeEnvelopeRejectsUnknownDuplicateAndTrailingInput(t *testing.T) {
 	duplicate := []byte(`{"name":"first","name":"second","concurrent_workers":1,"iterations_per_worker":1,"max_peak_heap_growth_bytes":1,"max_settled_heap_growth_bytes":1,"max_peak_goroutine_growth":1,"max_settled_goroutine_growth":1,"max_peak_open_handle_growth":1,"max_settled_open_handle_growth":1,"require_open_handle_metric":false}`)
 	if _, err := DecodeEnvelope(duplicate); err == nil {
 		t.Fatal("duplicate envelope field was accepted")
+	}
+
+	var fields map[string]any
+	if err := json.Unmarshal(validRaw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	delete(fields, "require_open_handle_metric")
+	missing, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeEnvelope(missing); err == nil || !strings.Contains(err.Error(), "required field") {
+		t.Fatalf("missing envelope field was accepted: %v", err)
+	}
+
+	if err := json.Unmarshal(validRaw, &fields); err != nil {
+		t.Fatal(err)
+	}
+	fields["require_open_handle_metric"] = nil
+	nullField, err := json.Marshal(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := DecodeEnvelope(nullField); err == nil || !strings.Contains(err.Error(), "must not be null") {
+		t.Fatalf("null required envelope field was accepted: %v", err)
 	}
 
 	trailing := append(append([]byte(nil), validRaw...), []byte(` {}`)...)
