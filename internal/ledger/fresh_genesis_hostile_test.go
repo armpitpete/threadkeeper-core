@@ -62,7 +62,7 @@ func TestFreshGenesisRejectsRootBindingPolicyDifferentFromGenesis(t *testing.T) 
 		"config/schemas/reducer-binding-v1.json":        contractschemas.ReducerBindingV1,
 		"config/authority/reducer-bindings/fresh-policy-mismatch-v1.json": binding,
 	}))
-	if err == nil || !strings.Contains(err.Error(), "GENESIS_POLICY_MISMATCH") {
+	if err == nil || !strings.Contains(err.Error(), "FRESH_GENESIS_INVALID") || !strings.Contains(err.Error(), "does not match Genesis") {
 		t.Fatalf("root policy mismatch = %v", err)
 	}
 }
