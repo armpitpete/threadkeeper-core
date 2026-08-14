@@ -66,8 +66,12 @@ type candidateDocument struct {
 	Document       eventDocument
 }
 
-// acceptWriteHooks is internal deterministic instrumentation for hostile race
-// tests. Production callers always use a nil hook set.
+// Internal deterministic instrumentation for hostile race tests. Production
+// callers always use nil hook sets.
+type prepareWriteHooks struct {
+	beforeFinalSnapshotCheck func()
+}
+
 type acceptWriteHooks struct {
 	beforeQuarantineRead func()
 }
@@ -78,6 +82,10 @@ type acceptWriteHooks struct {
 // from those staged bytes, then finalises quarantine under an ID bound to the
 // complete H0/H1/path/event identity. It never updates the authoritative ref.
 func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req CandidateRequest) (*WriteCandidate, *WriteResponse, error) {
+	return prepareWriteCandidate(ctx, r, req, nil)
+}
+
+func prepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req CandidateRequest, hooks *prepareWriteHooks) (*WriteCandidate, *WriteResponse, error) {
 	manifest, err := Replay(ctx, r)
 	if err != nil {
 		return nil, nil, err
@@ -161,8 +169,19 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		return nil, nil, fmt.Errorf("%w: quarantined bytes differ from validated request", ErrCandidateInvalid)
 	}
 
+	identity := WriteCandidate{
+		ExpectedHead:   manifest.LedgerCommit,
+		EventPath:      req.EventPath,
+		EventID:        doc.EventID,
+		IdempotencyKey: doc.IdempotencyKey,
+		ContentSHA256:  doc.ContentSHA256,
+	}
 	gitCandidate, err := r.PrepareEventCommit(ctx, manifest.LedgerCommit, req.EventPath, quarantined, doc.EventID)
 	if err != nil {
+		if errors.Is(err, gitledger.ErrStaleState) {
+			response, recoveryErr := recoverAfterSnapshotFailure(r, identity, err)
+			return nil, response, recoveryErr
+		}
 		return nil, nil, err
 	}
 	addition, err := validatePreparedCandidate(ctx, r, registry, gitCandidate, quarantined)
@@ -201,7 +220,7 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		return nil, nil, fmt.Errorf("%w: remove staging quarantine after binding: %v", ErrCandidateInvalid, err)
 	}
 
-	return &WriteCandidate{
+	prepared := &WriteCandidate{
 		ExpectedHead:    manifest.LedgerCommit,
 		CandidateCommit: gitCandidate.Commit,
 		EventPath:       req.EventPath,
@@ -209,7 +228,21 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		IdempotencyKey:  doc.IdempotencyKey,
 		ContentSHA256:   doc.ContentSHA256,
 		Quarantine:      boundEntry,
-	}, nil, nil
+	}
+	if hooks != nil && hooks.beforeFinalSnapshotCheck != nil {
+		hooks.beforeFinalSnapshotCheck()
+	}
+	response, settled, settleErr := reconcilePreparedCandidate(r, *prepared)
+	if settled {
+		if removeErr := q.Remove(boundEntry.ID); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
+			if response != nil {
+				return nil, response, fmt.Errorf("POST_ACCEPTANCE_QUARANTINE_CLEANUP_FAILED: remove reconciled prepared candidate: %w", removeErr)
+			}
+			return nil, nil, fmt.Errorf("CANDIDATE_QUARANTINE_CLEANUP_FAILED: %w", removeErr)
+		}
+		return nil, response, settleErr
+	}
+	return prepared, nil, nil
 }
 
 // AcceptWriteCandidate performs the sole authority-changing primitive in this
@@ -253,15 +286,15 @@ func acceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	// may have accepted and cleaned the shared quarantine entry after the H0
 	// snapshot above was captured.
 	if err := preflightCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
-		return recoverAfterPreCASFailure(r, candidate, err)
+		return recoverAfterSnapshotFailure(r, candidate, err)
 	}
 	if err := validateQuarantineHandle(candidate); err != nil {
-		return recoverAfterPreCASFailure(r, candidate, err)
+		return recoverAfterSnapshotFailure(r, candidate, err)
 	}
 	q, err := r.OpenExistingCandidateQuarantine()
 	if err != nil {
 		originalErr := fmt.Errorf("%w: open existing quarantine: %v", ErrCandidateInvalid, err)
-		return recoverAfterPreCASFailure(r, candidate, originalErr)
+		return recoverAfterSnapshotFailure(r, candidate, originalErr)
 	}
 	defer q.Close()
 	if hooks != nil && hooks.beforeQuarantineRead != nil {
@@ -270,19 +303,19 @@ func acceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	quarantined, err := q.Read(candidate.Quarantine)
 	if err != nil {
 		originalErr := fmt.Errorf("%w: read quarantined candidate: %v", ErrCandidateInvalid, err)
-		return recoverAfterPreCASFailure(r, candidate, originalErr)
+		return recoverAfterSnapshotFailure(r, candidate, originalErr)
 	}
 	qDoc, err := parseCandidateDocument(quarantined)
 	if err != nil {
 		originalErr := fmt.Errorf("%w: quarantined candidate document: %v", ErrCandidateInvalid, err)
-		return recoverAfterPreCASFailure(r, candidate, originalErr)
+		return recoverAfterSnapshotFailure(r, candidate, originalErr)
 	}
 	if qDoc.EventID != candidate.EventID || qDoc.IdempotencyKey != candidate.IdempotencyKey || qDoc.ContentSHA256 != candidate.ContentSHA256 {
 		originalErr := fmt.Errorf("%w: quarantine identity does not match candidate handle", ErrCandidateInvalid)
-		return recoverAfterPreCASFailure(r, candidate, originalErr)
+		return recoverAfterSnapshotFailure(r, candidate, originalErr)
 	}
 	if err := validateCandidateForAcceptance(ctx, r, manifest, candidate, quarantined); err != nil {
-		return recoverAfterPreCASFailure(r, candidate, err)
+		return recoverAfterSnapshotFailure(r, candidate, err)
 	}
 
 	casErr := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit)
@@ -360,11 +393,11 @@ func newPostAcceptanceRecoveryContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), postAcceptanceRecoveryTimeout)
 }
 
-// recoverAfterPreCASFailure prevents an H0 snapshot from turning a concurrent
-// durable acceptance into an ordinary candidate/quarantine failure. Missing or
-// invalid quarantine remains a hard failure unless a fresh authoritative replay
-// proves that the exact logical request is already durably accepted.
-func recoverAfterPreCASFailure(r *gitledger.Reader, candidate WriteCandidate, originalErr error) (*WriteResponse, error) {
+// recoverAfterSnapshotFailure prevents an old H0 snapshot from turning a
+// concurrent durable acceptance into an ordinary stale/candidate/quarantine
+// failure. The old failure remains authoritative unless a fresh ledger replay
+// proves the same logical request was accepted in the meantime.
+func recoverAfterSnapshotFailure(r *gitledger.Reader, candidate WriteCandidate, originalErr error) (*WriteResponse, error) {
 	if candidate.IdempotencyKey == "" {
 		return nil, originalErr
 	}
@@ -376,12 +409,41 @@ func recoverAfterPreCASFailure(r *gitledger.Reader, candidate WriteCandidate, or
 			return nil, recoveryErr
 		}
 		unknown := responseFromCandidate(WriteStatusAcceptanceUnknown, candidate, false, "")
-		return unknown, fmt.Errorf("CONCURRENT_ACCEPTANCE_RECOVERY_REQUIRED: pre-CAS failure %v; authoritative recovery failed: %w", originalErr, recoveryErr)
+		return unknown, fmt.Errorf("CONCURRENT_ACCEPTANCE_RECOVERY_REQUIRED: snapshot failure %v; authoritative recovery failed: %w", originalErr, recoveryErr)
 	}
 	if response != nil {
 		return response, nil
 	}
 	return nil, originalErr
+}
+
+// reconcilePreparedCandidate prevents Prepare from returning a candidate that
+// is already stale because another request accepted after Prepare's initial H0
+// snapshot. A current H0 keeps the candidate; a moved head is reconciled by the
+// same durable idempotency rules used by acceptance recovery.
+func reconcilePreparedCandidate(r *gitledger.Reader, candidate WriteCandidate) (*WriteResponse, bool, error) {
+	recoveryCtx, cancel := newPostAcceptanceRecoveryContext()
+	defer cancel()
+	current, err := r.Head(recoveryCtx)
+	if err != nil {
+		unknown := responseFromCandidate(WriteStatusAcceptanceUnknown, candidate, false, "")
+		return unknown, true, fmt.Errorf("PREPARE_SNAPSHOT_RECOVERY_REQUIRED: resolve current authority: %w", err)
+	}
+	if current == strings.ToLower(candidate.ExpectedHead) {
+		return nil, false, nil
+	}
+	response, recoveryErr := recoverCandidateAfterStaleCAS(recoveryCtx, r, candidate)
+	if recoveryErr != nil {
+		if errors.Is(recoveryErr, ErrIdempotencyConflict) {
+			return nil, true, recoveryErr
+		}
+		unknown := responseFromCandidate(WriteStatusAcceptanceUnknown, candidate, false, current)
+		return unknown, true, fmt.Errorf("PREPARE_SNAPSHOT_RECOVERY_REQUIRED: expected %s current %s; authoritative recovery failed: %w", candidate.ExpectedHead, current, recoveryErr)
+	}
+	if response != nil {
+		return response, true, nil
+	}
+	return nil, true, fmt.Errorf("%w: expected %s current %s", gitledger.ErrStaleState, candidate.ExpectedHead, current)
 }
 
 // recoverCandidateAfterStaleCAS replays the new exact head after a CAS race.
