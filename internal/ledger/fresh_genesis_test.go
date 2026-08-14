@@ -49,6 +49,9 @@ func TestInitializeFreshGenesisCreatesReplayableRoot(t *testing.T) {
 	if manifest.GenesisCommit != evidence.GenesisCommit || manifest.GenesisRoot.LedgerID != evidence.LedgerID || manifest.HistoryCommitCount != 1 {
 		t.Fatalf("restart changed Genesis identity: %#v", manifest)
 	}
+	if manifest.ActorPolicyVersion != testPolicyV1 || manifest.ActorPolicyRootContentSHA256 != evidence.ActorPolicyContentSHA256 {
+		t.Fatalf("restart changed root actor-policy identity: %#v", manifest)
+	}
 	policy, err := LoadCurrentActorPolicy(context.Background(), restarted)
 	if err != nil || policy.PolicyContentSHA != evidence.ActorPolicyContentSHA256 || policy.SourceEventID != "" {
 		t.Fatalf("restart changed actor policy identity: snapshot=%#v err=%v", policy, err)
@@ -248,7 +251,7 @@ func freshGenesisSeed(t *testing.T, extra map[string][]byte) map[string][]byte {
 		t.Fatal(err)
 	}
 	seed := map[string][]byte{
-		actorauth.LedgerPolicyPath:                                      writeTestActorPolicy(t, t.TempDir()),
+		actorauth.LedgerPolicyPath:                                      makeTestActorPolicy(t, "ledger:fresh-test", testPolicyV1),
 		"config/schemas/exclusive-record-event-v1.json":               contractschemas.ExclusiveGovernedRecordEventV1,
 		"config/schemas/reducer-binding-v1.json":                      contractschemas.ReducerBindingV1,
 		"config/authority/reducer-bindings/actor-auth-policy-v1.json": binding,
