@@ -2,10 +2,12 @@ package quarantine
 
 import (
 	"bytes"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,8 +16,11 @@ import (
 )
 
 const (
-	ensureSettleTimeout = time.Second
-	ensureRetryInterval = 5 * time.Millisecond
+	ensureRetryTimeout     = time.Second
+	ensureRetryInterval    = 5 * time.Millisecond
+	publicationTempPrefix  = ".publish-"
+	publicationTempSuffix  = ".tmp"
+	publicationNonceBytes  = 16
 )
 
 type Store struct {
@@ -27,6 +32,13 @@ type Entry struct {
 	ID            string `json:"id"`
 	ContentSHA256 string `json:"content_sha256"`
 	Size          int64  `json:"size"`
+}
+
+// putHooks is deterministic test instrumentation for the private publication
+// lifecycle. Production callers always pass nil.
+type putHooks struct {
+	beforeSync func()
+	syncFile   func(*os.File) error
 }
 
 func Open(dir string) (*Store, error) {
@@ -113,64 +125,103 @@ func (s *Store) Close() error {
 	return s.root.Close()
 }
 
+// Put publishes one candidate under id without ever exposing creator-owned
+// partial bytes at the final capability name. The complete content is written,
+// synced and closed in a private file first. A root-relative hard link then
+// atomically publishes the final name without replacing an existing file.
 func (s *Store) Put(id string, content []byte) (Entry, error) {
+	return s.put(id, content, nil)
+}
+
+func (s *Store) put(id string, content []byte, hooks *putHooks) (Entry, error) {
 	if !validID(id) {
 		return Entry{}, fmt.Errorf("QUARANTINE_INVALID: unsafe candidate id %q", id)
 	}
-	name := candidateName(id)
-	f, err := s.root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	tempName, err := newPublicationTempName()
 	if err != nil {
 		return Entry{}, err
 	}
-	cleanup := true
-	defer func() {
-		_ = f.Close()
-		if cleanup {
-			_ = s.root.Remove(name)
-		}
-	}()
-	if _, err := f.Write(content); err != nil {
+	f, err := s.root.OpenFile(tempName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
 		return Entry{}, err
 	}
-	if err := f.Sync(); err != nil {
+	closed := false
+	defer func() {
+		if !closed {
+			_ = f.Close()
+		}
+		// This invocation owns only its private file. Once the final hard link
+		// exists, cleanup here can never remove another publisher's capability.
+		_ = s.root.Remove(tempName)
+	}()
+
+	n, err := f.Write(content)
+	if err != nil {
+		return Entry{}, err
+	}
+	if n != len(content) {
+		return Entry{}, io.ErrShortWrite
+	}
+	if hooks != nil && hooks.beforeSync != nil {
+		hooks.beforeSync()
+	}
+	if hooks != nil && hooks.syncFile != nil {
+		err = hooks.syncFile(f)
+	} else {
+		err = f.Sync()
+	}
+	if err != nil {
 		return Entry{}, err
 	}
 	if err := f.Close(); err != nil {
 		return Entry{}, err
 	}
-	cleanup = false
-	return entryFor(id, content), nil
-}
+	closed = true
 
-// Ensure is idempotent for identical candidate bytes. Reusing a candidate
-// identity for different bytes fails closed. A concurrent identical creator may
-// have made the final filename visible before its write/fsync/close completes;
-// in that narrow case Ensure waits for the file to settle instead of treating a
-// transient short prefix as conflicting content.
-func (s *Store) Ensure(id string, content []byte) (Entry, error) {
-	entry, err := s.Put(id, content)
-	if err == nil {
-		return entry, nil
-	}
-	if !errors.Is(err, fs.ErrExist) {
+	name := candidateName(id)
+	if err := s.root.Link(tempName, name); err != nil {
 		return Entry{}, err
 	}
 
-	deadline := time.Now().Add(ensureSettleTimeout)
-	expectedSize := int64(len(content))
+	// Link succeeded only after the private file was fully synced and closed.
+	// Verify the published name before reporting success. The temporary hard link
+	// is then removed by the deferred cleanup, leaving the final capability.
+	published, got, err := s.ReadID(id)
+	if err != nil {
+		return Entry{}, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: verify published candidate: %w", err)
+	}
+	if !bytes.Equal(got, content) {
+		return Entry{}, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: published candidate bytes changed")
+	}
+	return published, nil
+}
+
+// Ensure is idempotent for identical completed candidate bytes. A final
+// capability name is created only after a private write has synced and closed,
+// so an existing final file is never treated as an in-progress publication.
+// Reusing a candidate identity for different bytes fails closed.
+func (s *Store) Ensure(id string, content []byte) (Entry, error) {
+	return s.ensure(id, content, nil)
+}
+
+func (s *Store) ensure(id string, content []byte, hooks *putHooks) (Entry, error) {
+	deadline := time.Now().Add(ensureRetryTimeout)
 	for {
+		entry, err := s.put(id, content, hooks)
+		if err == nil {
+			return entry, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return Entry{}, err
+		}
+
 		existing, got, readErr := s.ReadID(id)
 		if readErr != nil {
 			if errors.Is(readErr, fs.ErrNotExist) && time.Now().Before(deadline) {
-				// The first creator may have failed and removed its incomplete
-				// file after our O_EXCL collision. Retry exclusive creation.
-				entry, putErr := s.Put(id, content)
-				if putErr == nil {
-					return entry, nil
-				}
-				if !errors.Is(putErr, fs.ErrExist) {
-					return Entry{}, putErr
-				}
+				// A completed final capability can disappear only because another
+				// lifecycle operation removed it. Retry private no-overwrite
+				// publication; higher-level snapshot reconciliation decides whether
+				// that material became obsolete through durable acceptance.
 				time.Sleep(ensureRetryInterval)
 				continue
 			}
@@ -178,15 +229,6 @@ func (s *Store) Ensure(id string, content []byte) (Entry, error) {
 		}
 		if bytes.Equal(got, content) {
 			return existing, nil
-		}
-
-		// A file shorter than the expected content can only be treated as an
-		// in-progress identical creation while the bytes already present equal
-		// the exact expected prefix. Complete or divergent content is a genuine
-		// conflict and fails immediately.
-		if existing.Size < expectedSize && int64(len(got)) == existing.Size && bytes.Equal(got, content[:len(got)]) && time.Now().Before(deadline) {
-			time.Sleep(ensureRetryInterval)
-			continue
 		}
 		return Entry{}, fmt.Errorf("QUARANTINE_CONFLICT: candidate id %q already contains different bytes", id)
 	}
@@ -237,9 +279,9 @@ func (s *Store) Remove(id string) error {
 	return s.root.Remove(name)
 }
 
-// PruneBefore removes only well-formed regular candidate files whose mtime is
-// at or before cutoff. Suspicious candidate-shaped filesystem entries fail
-// closed rather than being followed or silently ignored.
+// PruneBefore removes well-formed regular candidate files and abandoned private
+// publication files whose mtime is at or before cutoff. Suspicious candidate or
+// publication-shaped filesystem entries fail closed rather than being followed.
 func (s *Store) PruneBefore(cutoff time.Time) (int, error) {
 	dir, err := s.root.Open(".")
 	if err != nil {
@@ -256,6 +298,26 @@ func (s *Store) PruneBefore(cutoff time.Time) (int, error) {
 	removed := 0
 	for _, entry := range entries {
 		name := entry.Name()
+		if strings.HasPrefix(name, publicationTempPrefix) {
+			if !validPublicationTempName(name) {
+				return removed, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: unsafe publication temp filename %q", name)
+			}
+			info, err := s.root.Lstat(name)
+			if err != nil {
+				return removed, err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return removed, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: publication temp %q is not a regular file", name)
+			}
+			if info.ModTime().After(cutoff) {
+				continue
+			}
+			if err := s.root.Remove(name); err != nil {
+				return removed, err
+			}
+			removed++
+			continue
+		}
 		if !strings.HasSuffix(name, ".candidate") {
 			continue
 		}
@@ -282,6 +344,26 @@ func (s *Store) PruneBefore(cutoff time.Time) (int, error) {
 }
 
 func candidateName(id string) string { return id + ".candidate" }
+
+func newPublicationTempName() (string, error) {
+	var nonce [publicationNonceBytes]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("QUARANTINE_INVALID: generate publication temp name: %w", err)
+	}
+	return publicationTempPrefix + hex.EncodeToString(nonce[:]) + publicationTempSuffix, nil
+}
+
+func validPublicationTempName(name string) bool {
+	if !strings.HasPrefix(name, publicationTempPrefix) || !strings.HasSuffix(name, publicationTempSuffix) {
+		return false
+	}
+	hexPart := strings.TrimSuffix(strings.TrimPrefix(name, publicationTempPrefix), publicationTempSuffix)
+	if len(hexPart) != publicationNonceBytes*2 {
+		return false
+	}
+	_, err := hex.DecodeString(hexPart)
+	return err == nil
+}
 
 func entryFor(id string, content []byte) Entry {
 	sum := sha256.Sum256(content)

@@ -1,12 +1,14 @@
 package quarantine
 
 import (
+	"errors"
 	"os"
+	"path/filepath"
+	"sync"
 	"testing"
-	"time"
 )
 
-func TestEnsureWaitsForIdenticalInProgressCreator(t *testing.T) {
+func TestEnsureFailedCreatorCannotInvalidateConcurrentSuccess(t *testing.T) {
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -15,53 +17,114 @@ func TestEnsureWaitsForIdenticalInProgressCreator(t *testing.T) {
 
 	id := "concurrent-identical"
 	content := []byte("complete identical candidate bytes")
-	prefix := content[:7]
+	beforeSync := make(chan struct{})
+	releaseSync := make(chan struct{})
+	creatorDone := make(chan error, 1)
 
-	f, err := s.root.OpenFile(candidateName(id), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := f.Write(prefix); err != nil {
-		f.Close()
-		t.Fatal(err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		t.Fatal(err)
-	}
-
-	writerDone := make(chan error, 1)
 	go func() {
-		// Leave the short prefix visible long enough for Ensure's first Put to
-		// collide and its first ReadID to observe an in-progress file.
-		time.Sleep(25 * time.Millisecond)
-		_, writeErr := f.Write(content[len(prefix):])
-		if writeErr == nil {
-			writeErr = f.Sync()
-		}
-		closeErr := f.Close()
-		if writeErr == nil {
-			writeErr = closeErr
-		}
-		writerDone <- writeErr
+		_, err := s.ensure(id, content, &putHooks{
+			beforeSync: func() {
+				close(beforeSync)
+				<-releaseSync
+			},
+			syncFile: func(*os.File) error {
+				return errors.New("injected sync failure")
+			},
+		})
+		creatorDone <- err
 	}()
 
-	entry, err := s.Ensure(id, content)
-	if err != nil {
-		t.Fatalf("identical concurrent Ensure misclassified in-progress content: %v", err)
+	<-beforeSync
+	finalPath := filepath.Join(s.dir, candidateName(id))
+	if _, err := os.Stat(finalPath); !os.IsNotExist(err) {
+		t.Fatalf("uncompleted creator exposed final capability before sync/close: %v", err)
 	}
-	if err := <-writerDone; err != nil {
-		t.Fatal(err)
+
+	// The second identical publisher must succeed through its own fully durable
+	// private publication; it must not depend on bytes owned by the blocked first
+	// creator.
+	second, err := s.Ensure(id, content)
+	if err != nil {
+		t.Fatalf("independent identical publisher failed: %v", err)
 	}
 	want := entryFor(id, content)
-	if entry != want {
-		t.Fatalf("settled entry = %#v want %#v", entry, want)
+	if second != want {
+		t.Fatalf("second publication = %#v want %#v", second, want)
 	}
+
+	close(releaseSync)
+	if err := <-creatorDone; err == nil || err.Error() != "injected sync failure" {
+		t.Fatalf("first creator error = %v, want injected sync failure", err)
+	}
+
+	gotEntry, got, err := s.ReadID(id)
+	if err != nil {
+		t.Fatalf("failed creator removed another publisher's final capability: %v", err)
+	}
+	if gotEntry != want || string(got) != string(content) {
+		t.Fatalf("surviving final capability entry=%#v bytes=%q", gotEntry, got)
+	}
+
+	temps, err := filepath.Glob(filepath.Join(s.dir, publicationTempPrefix+"*"+publicationTempSuffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(temps) != 0 {
+		t.Fatalf("private publication files leaked after failure/success race: %v", temps)
+	}
+}
+
+func TestEnsureConcurrentIdenticalPublishersConvergeOnOneFinalCapability(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	id := "concurrent-identical-success"
+	content := []byte("same complete candidate bytes")
+	start := make(chan struct{})
+	type result struct {
+		entry Entry
+		err   error
+	}
+	results := make(chan result, 2)
+	var wg sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			entry, err := s.Ensure(id, content)
+			results <- result{entry: entry, err: err}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+
+	want := entryFor(id, content)
+	for got := range results {
+		if got.err != nil {
+			t.Fatalf("identical concurrent publication failed: %v", got.err)
+		}
+		if got.entry != want {
+			t.Fatalf("converged entry = %#v want %#v", got.entry, want)
+		}
+	}
+
 	gotEntry, got, err := s.ReadID(id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if gotEntry != want || string(got) != string(content) {
-		t.Fatalf("settled quarantine content entry=%#v bytes=%q", gotEntry, got)
+		t.Fatalf("final capability entry=%#v bytes=%q", gotEntry, got)
+	}
+	temps, err := filepath.Glob(filepath.Join(s.dir, publicationTempPrefix+"*"+publicationTempSuffix))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(temps) != 0 {
+		t.Fatalf("private publication files leaked: %v", temps)
 	}
 }
