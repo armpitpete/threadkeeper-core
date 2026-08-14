@@ -30,6 +30,11 @@ type CandidateCommit struct {
 	EventBlob    string
 }
 
+type recoveredCASState struct {
+	Head               string
+	CandidateInHistory bool
+}
+
 // PrepareEventCommit creates Git objects for exactly one new durable event
 // without changing any ref. The candidate is not authoritative until a later
 // successful CompareAndSwap.
@@ -192,54 +197,67 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	_, updateErr := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead)
 
 	// From this point onward the caller context is not evidence about whether
-	// authority moved. Resolve the authoritative ref using a fresh bounded
-	// context even when update-ref itself returned an error (for example because
-	// the caller was cancelled after Git performed the atomic ref change).
-	got, recoveryErr := r.recoverHeadAfterCAS()
+	// authority moved. Resolve the authoritative ref and, when it has advanced
+	// beyond H1, inspect the recovered linear history using a fresh bounded
+	// context. This distinguishes "another writer won H0" from "our H1 was
+	// accepted and a later valid writer already advanced to H2".
+	recovered, recoveryErr := r.recoverStateAfterCAS(candidateCommit)
 	if updateErr != nil {
 		if recoveryErr != nil {
-			return fmt.Errorf("%w: update-ref returned %v; authoritative-head recovery failed: %v", ErrCASOutcomeUnknown, updateErr, recoveryErr)
+			return fmt.Errorf("%w: update-ref returned %v; authoritative-state recovery failed: %v", ErrCASOutcomeUnknown, updateErr, recoveryErr)
 		}
-		switch got {
-		case candidateCommit:
-			// Git moved authority before the caller-side command failure became
-			// observable. Treat the transition as accepted and continue normal
-			// post-acceptance verification in the ledger layer.
+		if recovered.CandidateInHistory {
+			// Git made H1 authoritative before the caller-side command failure
+			// became observable. H1 may already have a later descendant.
 			return nil
-		case expectedHead:
+		}
+		if recovered.Head == expectedHead {
 			// The exact ref is still H0, so this invocation did not accept H1.
 			return updateErr
-		default:
-			// Another exact-head writer won the race. Under the service-owned
-			// authority-store model, a failed H0->H1 CAS cannot have first moved
-			// H1 and then produced this different head.
-			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, got)
 		}
+		// Another exact-head writer won H0 and H1 is absent from the resulting
+		// authoritative history.
+		return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, recovered.Head)
 	}
 
 	// A successful update-ref means H1 was authoritative at the atomic update.
-	// Any inability to prove the resulting repository/head is therefore an
-	// explicit post-CAS recovery condition, never an ordinary write failure.
+	// A current descendant containing H1 is also a verified acceptance. Any
+	// inability to prove H1 in the recovered authority history is an explicit
+	// post-CAS recovery condition, never an ordinary write failure.
 	if recoveryErr != nil {
 		return fmt.Errorf("%w: update-ref accepted %s but verification failed: %v", ErrPostCASVerification, candidateCommit, recoveryErr)
 	}
-	if got != candidateCommit {
-		return fmt.Errorf("%w: update-ref accepted %s but ref now resolves to %s", ErrPostCASVerification, candidateCommit, got)
+	if !recovered.CandidateInHistory {
+		return fmt.Errorf("%w: update-ref accepted %s but recovered head %s does not contain it", ErrPostCASVerification, candidateCommit, recovered.Head)
 	}
 	return nil
 }
 
-func (r *Reader) recoverHeadAfterCAS() (string, error) {
+func (r *Reader) recoverStateAfterCAS(candidateCommit string) (recoveredCASState, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), casRecoveryTimeout)
 	defer cancel()
 	if err := r.CheckHistorySafety(ctx); err != nil {
-		return "", fmt.Errorf("repository safety check: %w", err)
+		return recoveredCASState{}, fmt.Errorf("repository safety check: %w", err)
 	}
 	got, err := r.Head(ctx)
 	if err != nil {
-		return "", err
+		return recoveredCASState{}, err
 	}
-	return got, nil
+	state := recoveredCASState{Head: got, CandidateInHistory: got == candidateCommit}
+	if state.CandidateInHistory {
+		return state, nil
+	}
+	history, err := r.History(ctx, got)
+	if err != nil {
+		return recoveredCASState{}, err
+	}
+	for _, commit := range history {
+		if commit.ID == candidateCommit {
+			state.CandidateInHistory = true
+			break
+		}
+	}
+	return state, nil
 }
 
 func (r *Reader) verifyExactChild(ctx context.Context, expectedHead, candidateCommit string) error {
