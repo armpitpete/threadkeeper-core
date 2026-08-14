@@ -52,6 +52,20 @@ func InitializeBareRoot(ctx context.Context, gitDir, ref string, rootFiles map[s
 	if err != nil {
 		return "", fmt.Errorf("resolve fresh ledger path: %w", err)
 	}
+
+	// Prove the existing parent path is already inside the same no-symlink,
+	// canonical filesystem boundary required by Reader before creating anything.
+	// The later live Reader pin still closes replacement/reuse after creation;
+	// production service ownership closes races between these operations.
+	parent := filepath.Dir(abs)
+	canonicalParent, err := canonicalLedgerRoot(parent)
+	if err != nil {
+		return "", fmt.Errorf("FRESH_GENESIS_INVALID: unsafe target parent: %w", err)
+	}
+	if canonicalParent != parent {
+		return "", fmt.Errorf("FRESH_GENESIS_INVALID: target parent changed canonical identity: got %s want %s", canonicalParent, parent)
+	}
+
 	if err := os.Mkdir(abs, 0o700); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("%w: target %q already exists", ErrLedgerAlreadyExists, abs)
