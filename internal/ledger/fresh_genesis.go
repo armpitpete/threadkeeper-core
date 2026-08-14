@@ -1,15 +1,24 @@
 package ledger
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
 	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
+	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
+	"github.com/armpitpete/threadkeeper-core/internal/contracts"
+	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 	"github.com/armpitpete/threadkeeper-core/internal/policy"
+	"github.com/armpitpete/threadkeeper-core/internal/reducer"
+	"github.com/armpitpete/threadkeeper-core/internal/schema"
+	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
 )
 
 type FreshGenesisEvidence struct {
@@ -28,12 +37,10 @@ type FreshGenesisEvidence struct {
 
 // InitializeFreshGenesis creates a brand-new dedicated authority ledger whose
 // only commit is the supplied Genesis trust root plus explicitly allowed initial
-// immutable configuration. The target is create-only; existing paths are never
-// adopted or overwritten. Success is returned only after the new repository is
-// reopened through the hardened reader and the complete Replay/FSCK path proves
-// the exact Genesis and actor-policy identity. The supported production
-// bootstrap additionally requires the actor-policy reducer binding so trusted
-// keys/grants can later be rotated or revoked through governed events.
+// immutable configuration. All semantic seed validation runs before the target
+// path is created. Success is returned only after the new repository is reopened
+// through the hardened reader and the complete Replay/FSCK path proves the exact
+// Genesis and actor-policy identity.
 func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis []byte, seedFiles map[string][]byte) (*FreshGenesisEvidence, error) {
 	root, err := genesis.Validate(rawGenesis)
 	if err != nil {
@@ -63,6 +70,9 @@ func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis 
 	}
 	if err := actorauth.ValidateInitialAuthorities(policyDoc, root.InitialAuthorities); err != nil {
 		return nil, fmt.Errorf("FRESH_GENESIS_INVALID: %w", err)
+	}
+	if err := validateFreshGenesisSeedContracts(root, seedFiles); err != nil {
+		return nil, err
 	}
 
 	createdRoot, err := gitledger.InitializeBareRoot(ctx, gitDir, ref, files)
@@ -115,6 +125,100 @@ func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis 
 		InitialSchemaCount:       len(root.InitialSchemas),
 		InitialBindingCount:      manifest.ReducerBindingCount,
 	}, nil
+}
+
+func validateFreshGenesisSeedContracts(root genesis.Root, seedFiles map[string][]byte) error {
+	registry := schema.NewRegistry()
+	schemaIDs := make([]string, 0)
+	for p, raw := range seedFiles {
+		if !strings.HasPrefix(p, "config/schemas/") {
+			continue
+		}
+		value, err := strictjson.Decode(raw)
+		if err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: schema %s: %w", p, err)
+		}
+		obj, ok := value.(map[string]any)
+		if !ok {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: schema %s root must be object", p)
+		}
+		id, _ := obj["$id"].(string)
+		if id == "" {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: schema %s has no $id", p)
+		}
+		if err := registry.Add(id, raw); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: schema %s: %w", p, err)
+		}
+		schemaIDs = append(schemaIDs, id)
+	}
+	sort.Strings(schemaIDs)
+	if len(schemaIDs) != len(root.InitialSchemas) {
+		return fmt.Errorf("FRESH_GENESIS_INVALID: Genesis initial_schemas %v do not match seed schema IDs %v", root.InitialSchemas, schemaIDs)
+	}
+	for i := range schemaIDs {
+		if schemaIDs[i] != root.InitialSchemas[i] {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: Genesis initial_schemas %v do not match seed schema IDs %v", root.InitialSchemas, schemaIDs)
+		}
+	}
+
+	actorBindingFound := false
+	seenIDs := map[string]struct{}{}
+	seenKinds := map[string]struct{}{}
+	for p, raw := range seedFiles {
+		if !strings.HasPrefix(p, policy.ReducerBindingPrefix+"/") {
+			continue
+		}
+		if err := strictjson.Validate(raw); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s: %w", p, err)
+		}
+		canonical, err := canonicaljson.Canonicalize(raw)
+		if err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s canonicalization: %w", p, err)
+		}
+		if !bytes.Equal(raw, canonical) {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s is not RFC 8785 canonical JSON", p)
+		}
+		if err := digest.Verify(raw); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s: %w", p, err)
+		}
+		var binding policy.ReducerBinding
+		if err := json.Unmarshal(raw, &binding); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s decode: %w", p, err)
+		}
+		if binding.SchemaVersion != contracts.ReducerBindingSchemaV1 {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s uses unknown schema %q", p, binding.SchemaVersion)
+		}
+		if err := registry.Validate(binding.SchemaVersion, raw); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %s: %w", p, err)
+		}
+		if binding.StateModel != reducer.ModelExclusiveV1 {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %q uses model %q", binding.BindingID, binding.StateModel)
+		}
+		if binding.EventSchema != contracts.ExclusiveRecordEventSchemaV1 {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %q uses event schema %q", binding.BindingID, binding.EventSchema)
+		}
+		if _, err := registry.Compile(binding.EventSchema); err != nil {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %q event schema: %w", binding.BindingID, err)
+		}
+		if binding.AuthorityPolicyVersion != root.InitialAuthorityPolicy {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: reducer binding %q policy %q does not match Genesis %q", binding.BindingID, binding.AuthorityPolicyVersion, root.InitialAuthorityPolicy)
+		}
+		if _, exists := seenIDs[binding.BindingID]; exists {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: duplicate reducer binding_id %q", binding.BindingID)
+		}
+		if _, exists := seenKinds[binding.RecordKind]; exists {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: duplicate reducer record_kind %q", binding.RecordKind)
+		}
+		seenIDs[binding.BindingID] = struct{}{}
+		seenKinds[binding.RecordKind] = struct{}{}
+		if binding.RecordKind == actorauth.PolicyRecordKind {
+			actorBindingFound = true
+		}
+	}
+	if !actorBindingFound {
+		return fmt.Errorf("FRESH_GENESIS_INVALID: no reducer binding for actor policy record kind %q", actorauth.PolicyRecordKind)
+	}
+	return nil
 }
 
 func validateFreshGenesisSeedPath(p string) error {
