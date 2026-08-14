@@ -69,6 +69,7 @@ type candidateDocument struct {
 // Internal deterministic instrumentation for hostile race tests. Production
 // callers always use nil hook sets.
 type prepareWriteHooks struct {
+	beforeEventCommit        func()
 	beforeFinalSnapshotCheck func()
 }
 
@@ -176,10 +177,16 @@ func prepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		IdempotencyKey: doc.IdempotencyKey,
 		ContentSHA256:  doc.ContentSHA256,
 	}
+	if hooks != nil && hooks.beforeEventCommit != nil {
+		hooks.beforeEventCommit()
+	}
 	gitCandidate, err := r.PrepareEventCommit(ctx, manifest.LedgerCommit, req.EventPath, quarantined, doc.EventID)
 	if err != nil {
 		if errors.Is(err, gitledger.ErrStaleState) {
 			response, recoveryErr := recoverAfterSnapshotFailure(r, identity, err)
+			if removeErr := q.Remove(stageEntry.ID); removeErr != nil && !errors.Is(removeErr, fs.ErrNotExist) {
+				return nil, response, fmt.Errorf("CANDIDATE_QUARANTINE_CLEANUP_FAILED: concurrent-acceptance staging cleanup failed: %v; recovery result: %w", removeErr, recoveryErr)
+			}
 			return nil, response, recoveryErr
 		}
 		return nil, nil, err
