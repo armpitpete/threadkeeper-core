@@ -6,12 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"strings"
 
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 	"github.com/armpitpete/threadkeeper-core/internal/policy"
+	"github.com/armpitpete/threadkeeper-core/internal/quarantine"
 	"github.com/armpitpete/threadkeeper-core/internal/schema"
 	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
 )
@@ -34,12 +36,13 @@ type CandidateRequest struct {
 }
 
 type WriteCandidate struct {
-	ExpectedHead    string `json:"expected_head"`
-	CandidateCommit string `json:"candidate_commit"`
-	EventPath       string `json:"event_path"`
-	EventID         string `json:"event_id"`
-	IdempotencyKey  string `json:"idempotency_key"`
-	ContentSHA256   string `json:"content_sha256"`
+	ExpectedHead    string           `json:"expected_head"`
+	CandidateCommit string           `json:"candidate_commit"`
+	EventPath       string           `json:"event_path"`
+	EventID         string           `json:"event_id"`
+	IdempotencyKey  string           `json:"idempotency_key"`
+	ContentSHA256   string           `json:"content_sha256"`
+	Quarantine      quarantine.Entry `json:"quarantine"`
 }
 
 type WriteResponse struct {
@@ -60,8 +63,9 @@ type candidateDocument struct {
 }
 
 // PrepareWriteCandidate validates a fully formed durable event against the
-// exact current ledger state and creates unreachable Git candidate objects.
-// It never updates the authoritative ref.
+// exact current ledger state, quarantines the exact validated bytes, and then
+// creates unreachable Git candidate objects from those quarantined bytes. It
+// never updates the authoritative ref.
 func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req CandidateRequest) (*WriteCandidate, *WriteResponse, error) {
 	manifest, err := Replay(ctx, r)
 	if err != nil {
@@ -124,11 +128,28 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		return nil, nil, fmt.Errorf("%w: reducer validation: %v", ErrCandidateInvalid, err)
 	}
 
-	gitCandidate, err := r.PrepareEventCommit(ctx, manifest.LedgerCommit, req.EventPath, req.Event, doc.EventID)
+	q, err := r.OpenCandidateQuarantine()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: open quarantine: %v", ErrCandidateInvalid, err)
+	}
+	defer q.Close()
+	qEntry, err := q.Ensure(doc.ContentSHA256, req.Event)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: quarantine candidate: %v", ErrCandidateInvalid, err)
+	}
+	quarantined, err := q.Read(qEntry)
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: verify quarantined candidate: %v", ErrCandidateInvalid, err)
+	}
+	if !bytes.Equal(quarantined, req.Event) {
+		return nil, nil, fmt.Errorf("%w: quarantined bytes differ from validated request", ErrCandidateInvalid)
+	}
+
+	gitCandidate, err := r.PrepareEventCommit(ctx, manifest.LedgerCommit, req.EventPath, quarantined, doc.EventID)
 	if err != nil {
 		return nil, nil, err
 	}
-	addition, err := validatePreparedCandidate(ctx, r, registry, gitCandidate, req.Event)
+	addition, err := validatePreparedCandidate(ctx, r, registry, gitCandidate, quarantined)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -143,12 +164,15 @@ func PrepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		EventID:         doc.EventID,
 		IdempotencyKey:  doc.IdempotencyKey,
 		ContentSHA256:   doc.ContentSHA256,
+		Quarantine:      qEntry,
 	}, nil, nil
 }
 
 // AcceptWriteCandidate performs the sole authority-changing primitive in this
-// package: exact-head Git compare-and-swap. It is intentionally not exposed by
-// the CLI while the service write gate remains disabled.
+// package: exact-head Git compare-and-swap. A ref cannot move until the exact
+// event bytes are recovered from the ledger-bound quarantine and matched to the
+// candidate Git object. It is intentionally not exposed by the CLI while the
+// service write gate remains disabled.
 func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate WriteCandidate) (*WriteResponse, error) {
 	manifest, err := Replay(ctx, r)
 	if err != nil {
@@ -162,12 +186,35 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 		if accepted.Entry.ContentSHA256 != candidate.ContentSHA256 || accepted.Document.EventID != candidate.EventID {
 			return nil, fmt.Errorf("%w: key %q is already bound to another accepted request", ErrIdempotencyConflict, candidate.IdempotencyKey)
 		}
-		return responseFromAccepted(WriteStatusAlreadyAccepted, manifest.LedgerCommit, accepted), nil
+		response := responseFromAccepted(WriteStatusAlreadyAccepted, manifest.LedgerCommit, accepted)
+		if err := cleanupAcceptedQuarantine(r, candidate); err != nil {
+			return response, err
+		}
+		return response, nil
 	}
 	if manifest.LedgerCommit != strings.ToLower(candidate.ExpectedHead) {
 		return nil, fmt.Errorf("%w: expected %s current %s", gitledger.ErrStaleState, candidate.ExpectedHead, manifest.LedgerCommit)
 	}
-	if err := validateCandidateForAcceptance(ctx, r, manifest, candidate); err != nil {
+	if err := validateQuarantineHandle(candidate); err != nil {
+		return nil, err
+	}
+	q, err := r.OpenExistingCandidateQuarantine()
+	if err != nil {
+		return nil, fmt.Errorf("%w: open existing quarantine: %v", ErrCandidateInvalid, err)
+	}
+	defer q.Close()
+	quarantined, err := q.Read(candidate.Quarantine)
+	if err != nil {
+		return nil, fmt.Errorf("%w: read quarantined candidate: %v", ErrCandidateInvalid, err)
+	}
+	qDoc, err := parseCandidateDocument(quarantined)
+	if err != nil {
+		return nil, fmt.Errorf("%w: quarantined candidate document: %v", ErrCandidateInvalid, err)
+	}
+	if qDoc.EventID != candidate.EventID || qDoc.IdempotencyKey != candidate.IdempotencyKey || qDoc.ContentSHA256 != candidate.ContentSHA256 {
+		return nil, fmt.Errorf("%w: quarantine identity does not match candidate handle", ErrCandidateInvalid)
+	}
+	if err := validateCandidateForAcceptance(ctx, r, manifest, candidate, quarantined); err != nil {
 		return nil, err
 	}
 	if err := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit); err != nil {
@@ -177,6 +224,9 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 				return nil, recoveryErr
 			}
 			if response != nil {
+				if cleanupErr := removeQuarantineEntry(q, candidate.Quarantine); cleanupErr != nil {
+					return response, cleanupErr
+				}
 				return response, nil
 			}
 		}
@@ -194,7 +244,11 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 	if accepted == nil || accepted.Entry.AcceptedCommit != candidate.CandidateCommit || accepted.Entry.ContentSHA256 != candidate.ContentSHA256 || accepted.Document.EventID != candidate.EventID {
 		return nil, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: accepted event identity not recoverable from ledger")
 	}
-	return responseFromAccepted(WriteStatusAccepted, post.LedgerCommit, accepted), nil
+	response := responseFromAccepted(WriteStatusAccepted, post.LedgerCommit, accepted)
+	if err := removeQuarantineEntry(q, candidate.Quarantine); err != nil {
+		return response, err
+	}
+	return response, nil
 }
 
 // recoverCandidateAfterStaleCAS replays the new exact head after a CAS race.
@@ -219,9 +273,19 @@ func recoverCandidateAfterStaleCAS(ctx context.Context, r *gitledger.Reader, can
 	return responseFromAccepted(WriteStatusAlreadyAccepted, afterRace.LedgerCommit, traced), nil
 }
 
-func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate) error {
+func validateQuarantineHandle(candidate WriteCandidate) error {
+	if candidate.Quarantine.ID == "" || candidate.Quarantine.ID != candidate.ContentSHA256 || candidate.Quarantine.ContentSHA256 == "" || candidate.Quarantine.Size <= 0 {
+		return fmt.Errorf("%w: candidate handle lacks matching quarantine identity", ErrCandidateInvalid)
+	}
+	return nil
+}
+
+func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, manifest *ReplayManifest, candidate WriteCandidate, quarantined []byte) error {
 	if candidate.IdempotencyKey == "" || candidate.EventID == "" || candidate.ContentSHA256 == "" {
 		return fmt.Errorf("%w: candidate handle lacks durable identity", ErrCandidateInvalid)
+	}
+	if err := validateQuarantineHandle(candidate); err != nil {
+		return err
 	}
 	if err := requireEventIDAvailable(manifest, candidate.EventID); err != nil {
 		return err
@@ -240,6 +304,13 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 	if len(additions) != 1 || additions[0].Path != candidate.EventPath {
 		return fmt.Errorf("%w: candidate event path mismatch", ErrCandidateInvalid)
 	}
+	stored, err := r.ReadFile(ctx, candidate.CandidateCommit, candidate.EventPath)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(stored, quarantined) {
+		return fmt.Errorf("%w: Git candidate bytes differ from quarantined bytes", ErrCandidateInvalid)
+	}
 	validated, err := validateEvent(ctx, r, registry, additions[0])
 	if err != nil {
 		return fmt.Errorf("%w: candidate event validation: %v", ErrCandidateInvalid, err)
@@ -253,6 +324,34 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 	}
 	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, gitledger.Commit{ID: candidate.CandidateCommit, Parent: manifest.LedgerCommit}, validated); err != nil {
 		return fmt.Errorf("%w: candidate reducer validation: %v", ErrCandidateInvalid, err)
+	}
+	return nil
+}
+
+func cleanupAcceptedQuarantine(r *gitledger.Reader, candidate WriteCandidate) error {
+	if candidate.Quarantine.ID == "" {
+		return nil
+	}
+	q, err := r.OpenExistingCandidateQuarantine()
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("POST_ACCEPTANCE_QUARANTINE_CLEANUP_FAILED: %w", err)
+	}
+	defer q.Close()
+	return removeQuarantineEntry(q, candidate.Quarantine)
+}
+
+func removeQuarantineEntry(q *quarantine.Store, entry quarantine.Entry) error {
+	if entry.ID == "" {
+		return nil
+	}
+	if err := q.Remove(entry.ID); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("POST_ACCEPTANCE_QUARANTINE_CLEANUP_FAILED: %w", err)
 	}
 	return nil
 }
