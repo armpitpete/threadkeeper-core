@@ -181,7 +181,7 @@ func TestReplayRejectsNonRegularRootGenesis(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if _, err := Replay(context.Background(), r); err == nil || !strings.Contains(err.Error(), "expected regular 100644 blob") {
+	if _, err := Replay(context.Background(), r); err == nil || !strings.Contains(err.Error(), "100644 regular blob") {
 		t.Fatalf("non-regular Genesis was accepted: %v", err)
 	}
 }
