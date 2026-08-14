@@ -270,6 +270,23 @@ func AcceptWriteCandidate(ctx context.Context, r *gitledger.Reader, candidate Wr
 
 	casErr := r.CompareAndSwap(ctx, candidate.ExpectedHead, candidate.CandidateCommit)
 	if casErr != nil {
+		if errors.Is(casErr, gitledger.ErrCASAcceptanceRecovered) {
+			recoveryCtx, cancel := newPostAcceptanceRecoveryContext()
+			response, recoveryErr := recoverCandidateAfterStaleCAS(recoveryCtx, r, candidate)
+			cancel()
+			if recoveryErr != nil {
+				response := responseFromCandidate(WriteStatusAcceptedVerificationFailed, candidate, true, "")
+				return response, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: recovered CAS acceptance could not be replayed: %w", recoveryErr)
+			}
+			if response == nil {
+				response := responseFromCandidate(WriteStatusAcceptedVerificationFailed, candidate, true, "")
+				return response, fmt.Errorf("POST_ACCEPTANCE_VERIFICATION_FAILED: recovered CAS acceptance was not recoverable by idempotency key")
+			}
+			if cleanupErr := removeQuarantineEntry(q, candidate.Quarantine); cleanupErr != nil {
+				return response, cleanupErr
+			}
+			return response, nil
+		}
 		if errors.Is(casErr, gitledger.ErrStaleState) {
 			recoveryCtx, cancel := newPostAcceptanceRecoveryContext()
 			response, recoveryErr := recoverCandidateAfterStaleCAS(recoveryCtx, r, candidate)
