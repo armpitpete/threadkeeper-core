@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
+	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 )
 
@@ -54,6 +56,9 @@ func TestReplayValidBareLedgerDeterministically(t *testing.T) {
 	}
 	if !first.BareRepository {
 		t.Fatal("expected bare ledger repository")
+	}
+	if first.GenesisCommit == "" || first.GenesisRoot.ProjectID != "project:test" || first.GenesisRoot.LedgerID != "ledger:test" {
+		t.Fatalf("replay did not expose test Genesis identity: %#v", first.GenesisRoot)
 	}
 	if first.EventCount != 2 || len(first.Events) != 2 {
 		t.Fatalf("event count = %d, want 2", first.EventCount)
@@ -160,7 +165,39 @@ func newWorkRepo(t *testing.T) string {
 	runGit(t, "", "init", "-b", "main", dir)
 	runGit(t, dir, "config", "user.name", "Threadkeeper Test")
 	runGit(t, dir, "config", "user.email", "threadkeeper-test@example.invalid")
+	writeTestGenesis(t, dir, nil)
+	commitAll(t, dir, "create test Genesis")
 	return dir
+}
+
+func writeTestGenesis(t *testing.T, work string, initialSchemas []string) []byte {
+	t.Helper()
+	if initialSchemas == nil {
+		initialSchemas = []string{}
+	}
+	raw, err := json.Marshal(map[string]any{
+		"project_id":               "project:test",
+		"ledger_id":                "ledger:test",
+		"created_at":               "2026-08-12T16:00:00Z",
+		"initial_authority_policy": testPolicyV1,
+		"initial_schemas":          initialSchemas,
+		"initial_authorities":      []string{"owner:test"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, _, err := digest.Complete(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(work, filepath.FromSlash(genesis.LedgerPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, completed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return completed
 }
 
 func writeSchema(t *testing.T, work string) {

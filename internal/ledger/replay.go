@@ -7,10 +7,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
+	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 	"github.com/armpitpete/threadkeeper-core/internal/policy"
 	"github.com/armpitpete/threadkeeper-core/internal/reducer"
@@ -22,11 +24,11 @@ type ReplayEntry struct {
 	Sequence       int    `json:"sequence"`
 	AcceptedCommit string `json:"accepted_commit"`
 	Path           string `json:"path"`
-	EventID        string `json:"event_id"`
-	EventType      string `json:"event_type"`
-	SchemaVersion  string `json:"schema_version"`
-	ContentSHA256  string `json:"content_sha256"`
-	TargetCount    int    `json:"target_count"`
+	EventID         string `json:"event_id"`
+	EventType       string `json:"event_type"`
+	SchemaVersion   string `json:"schema_version"`
+	ContentSHA256   string `json:"content_sha256"`
+	TargetCount     int    `json:"target_count"`
 }
 
 type ReplayManifest struct {
@@ -34,6 +36,8 @@ type ReplayManifest struct {
 	AuthoritativeRef      string             `json:"authoritative_ref"`
 	GitObjectFormat       string             `json:"git_object_format"`
 	BareRepository        bool               `json:"bare_repository"`
+	GenesisCommit         string             `json:"genesis_commit"`
+	GenesisRoot           genesis.Root       `json:"genesis_root"`
 	HistoryCommitCount    int                `json:"history_commit_count"`
 	EventCount            int                `json:"event_count"`
 	ReducerBindingCount   int                `json:"reducer_binding_count"`
@@ -63,9 +67,10 @@ type validatedEvent struct {
 	Document eventDocument
 }
 
-// Replay validates the authoritative Git history, builds a deterministic audit
-// manifest, and applies only explicitly accepted current-state reducer
-// semantics. It remains read-only and cannot advance the authoritative ref.
+// Replay validates the authoritative Git history, including the immutable
+// first-commit Genesis trust root, builds a deterministic audit manifest, and
+// applies only explicitly accepted current-state reducer semantics. It remains
+// read-only and cannot advance the authoritative ref.
 func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err := r.CheckHistorySafety(ctx); err != nil {
 		return nil, err
@@ -89,12 +94,18 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	genesisRoot, genesisCommit, err := validateGenesisHistory(ctx, r, history)
+	if err != nil {
+		return nil, err
+	}
 
 	manifest := &ReplayManifest{
 		LedgerCommit:       head,
 		AuthoritativeRef:   r.Ref(),
 		GitObjectFormat:    objectFormat,
 		BareRepository:     bare,
+		GenesisCommit:      genesisCommit,
+		GenesisRoot:        genesisRoot,
 		HistoryCommitCount: len(history),
 		Events:             []ReplayEntry{},
 		GovernedRecords:    reducer.Projection{},
@@ -128,6 +139,13 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 		bindings, err := policy.LoadReducerBindingsAt(ctx, r, registry, commit.ID)
 		if err != nil {
 			return nil, fmt.Errorf("reducer binding snapshot at %s: %w", commit.ID, err)
+		}
+		if commit.ID == genesisCommit {
+			for _, binding := range bindings.ByBindingID {
+				if binding.AuthorityPolicyVersion != genesisRoot.InitialAuthorityPolicy {
+					return nil, fmt.Errorf("GENESIS_POLICY_MISMATCH: root binding %q uses authority policy %q; Genesis declares %q", binding.BindingID, binding.AuthorityPolicyVersion, genesisRoot.InitialAuthorityPolicy)
+				}
+			}
 		}
 		bindingCount = len(bindings.ByRecordKind)
 
@@ -177,6 +195,87 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	}
 	manifest.ReplaySHA256 = replayDigest
 	return manifest, nil
+}
+
+func validateGenesisHistory(ctx context.Context, r *gitledger.Reader, history []gitledger.Commit) (genesis.Root, string, error) {
+	if len(history) == 0 {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: authoritative ledger has no root commit")
+	}
+	rootCommit := history[0].ID
+	changes, err := r.ImmutableJSONAdditions(ctx, rootCommit, genesis.LedgerPrefix)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root Genesis tree: %w", err)
+	}
+	if len(changes) != 1 || changes[0] != genesis.LedgerPath {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root commit %s must add exactly %q, got %v", rootCommit, genesis.LedgerPath, changes)
+	}
+	rootEvents, err := r.EventAdditions(ctx, rootCommit)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: inspect root events: %w", err)
+	}
+	if len(rootEvents) != 0 {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: root commit must not contain durable events")
+	}
+	raw, err := r.ReadRegularFile(ctx, rootCommit, genesis.LedgerPath)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: read root record: %w", err)
+	}
+	root, err := genesis.Validate(raw)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root record at %s: %w", rootCommit, err)
+	}
+	actualSchemas, err := schemaIDsAt(ctx, r, rootCommit)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: inspect initial schemas: %w", err)
+	}
+	if len(actualSchemas) != len(root.InitialSchemas) {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
+	}
+	for i := range actualSchemas {
+		if actualSchemas[i] != root.InitialSchemas[i] {
+			return genesis.Root{}, "", fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
+		}
+	}
+
+	for _, commit := range history[1:] {
+		later, err := r.ImmutableJSONAdditions(ctx, commit.ID, genesis.LedgerPrefix)
+		if err != nil {
+			return genesis.Root{}, "", fmt.Errorf("GENESIS_IMMUTABLE: commit %s: %w", commit.ID, err)
+		}
+		if len(later) != 0 {
+			return genesis.Root{}, "", fmt.Errorf("GENESIS_IMMUTABLE: commit %s adds later Genesis material %v", commit.ID, later)
+		}
+	}
+	return root, rootCommit, nil
+}
+
+func schemaIDsAt(ctx context.Context, r *gitledger.Reader, commit string) ([]string, error) {
+	paths, err := r.ListJSON(ctx, commit, "config/schemas")
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(paths))
+	for _, schemaPath := range paths {
+		raw, err := r.ReadFile(ctx, commit, schemaPath)
+		if err != nil {
+			return nil, err
+		}
+		value, err := strictjson.Decode(raw)
+		if err != nil {
+			return nil, fmt.Errorf("schema %s: %w", schemaPath, err)
+		}
+		obj, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("SCHEMA_INVALID: schema %s root must be object", schemaPath)
+		}
+		id, _ := obj["$id"].(string)
+		if id == "" {
+			return nil, fmt.Errorf("SCHEMA_INVALID: schema %s has no $id", schemaPath)
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func applyGovernedRecordEvent(current reducer.Projection, bindings *policy.ReducerBindingSnapshot, commit gitledger.Commit, validated validatedEvent) (reducer.Projection, error) {
@@ -300,6 +399,8 @@ func replayDigest(manifest *ReplayManifest) (string, error) {
 		LedgerCommit          string        `json:"ledger_commit"`
 		AuthoritativeRef      string        `json:"authoritative_ref"`
 		GitObjectFormat       string        `json:"git_object_format"`
+		GenesisCommit         string        `json:"genesis_commit"`
+		GenesisRoot           genesis.Root  `json:"genesis_root"`
 		HistoryCommitCount    int           `json:"history_commit_count"`
 		ReducerBindingCount   int           `json:"reducer_binding_count"`
 		GovernedRecordCount   int           `json:"governed_record_count"`
@@ -309,6 +410,8 @@ func replayDigest(manifest *ReplayManifest) (string, error) {
 		LedgerCommit:          manifest.LedgerCommit,
 		AuthoritativeRef:      manifest.AuthoritativeRef,
 		GitObjectFormat:       manifest.GitObjectFormat,
+		GenesisCommit:         manifest.GenesisCommit,
+		GenesisRoot:           manifest.GenesisRoot,
 		HistoryCommitCount:    manifest.HistoryCommitCount,
 		ReducerBindingCount:   manifest.ReducerBindingCount,
 		GovernedRecordCount:   manifest.GovernedRecordCount,
