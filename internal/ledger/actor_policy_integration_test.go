@@ -61,13 +61,31 @@ func TestPrepareRejectsMalformedActorPolicyRotationBeforeCAS(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") {
 		t.Fatalf("malformed actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
-	got, headErr := r.Head(context.Background())
-	if headErr != nil {
-		t.Fatal(headErr)
+	assertHeadUnchanged(t, r, head)
+}
+
+func TestPrepareRejectsWrongActorPolicyLedgerBeforeCAS(t *testing.T) {
+	r, head := freshActorPolicyReader(t)
+	defer r.Close()
+	wrong := actorPolicyValueForContext(t, 8, "owner:test", "ledger:other", testPolicyV1, actorauth.ActionOperate, "target:test", false)
+	event := actorPolicyCreateEvent(t, head, "actor-policy-wrong-ledger", "idem-actor-policy-wrong-ledger", wrong)
+	candidate, response, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/actor-policy-wrong-ledger.json", Event: event})
+	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") || !strings.Contains(err.Error(), "ledger_id") {
+		t.Fatalf("wrong-ledger actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
-	if got != head {
-		t.Fatalf("malformed actor policy changed authority: got %s want %s", got, head)
+	assertHeadUnchanged(t, r, head)
+}
+
+func TestPrepareRejectsWrongActorPolicyVersionBeforeCAS(t *testing.T) {
+	r, head := freshActorPolicyReader(t)
+	defer r.Close()
+	wrong := actorPolicyValueForContext(t, 9, "owner:test", "ledger:fresh-test", "authority-policy:wrong:v1", actorauth.ActionOperate, "target:test", false)
+	event := actorPolicyCreateEvent(t, head, "actor-policy-wrong-version", "idem-actor-policy-wrong-version", wrong)
+	candidate, response, err := PrepareWriteCandidate(context.Background(), r, CandidateRequest{ExpectedHead: head, EventPath: "events/governance/actor-policy-wrong-version.json", Event: event})
+	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") || !strings.Contains(err.Error(), "authority_policy_version") {
+		t.Fatalf("wrong-version actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
+	assertHeadUnchanged(t, r, head)
 }
 
 func TestGovernedActorPolicyRotationIsLoadedAfterRestart(t *testing.T) {
@@ -100,6 +118,9 @@ func TestGovernedActorPolicyRotationIsLoadedAfterRestart(t *testing.T) {
 	}
 	if snapshot.SourceEventID != eventID || snapshot.PolicyContentSHA == "" || snapshot.LedgerCommit != accepted.LedgerCommit {
 		t.Fatalf("restart did not load rotated policy: %#v", snapshot)
+	}
+	if snapshot.Document.LedgerID != "ledger:fresh-test" || snapshot.Document.AuthorityPolicyVersion != testPolicyV1 {
+		t.Fatalf("rotated policy lost trust-domain identity: %#v", snapshot.Document)
 	}
 	if len(snapshot.Policy.Grants) != 1 || snapshot.Policy.Grants[0].Action != actorauth.ActionDecide || snapshot.Policy.Grants[0].Target != "project:test/status" || snapshot.Policy.Grants[0].LedgerID != "ledger:fresh-test" {
 		t.Fatalf("rotated exact grants = %#v", snapshot.Policy.Grants)
@@ -140,6 +161,17 @@ func TestGovernedActorPolicyRevocationFailsClosed(t *testing.T) {
 	}
 }
 
+func assertHeadUnchanged(t *testing.T, r *gitledger.Reader, want string) {
+	t.Helper()
+	got, err := r.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("rejected actor policy changed authority: got %s want %s", got, want)
+	}
+}
+
 func freshActorPolicyReader(t *testing.T) (*gitledger.Reader, string) {
 	t.Helper()
 	target := filepath.Join(t.TempDir(), "actor-policy-ledger.git")
@@ -163,6 +195,10 @@ func actorPolicyValue(t *testing.T, seedByte byte, action actorauth.Action, targ
 }
 
 func actorPolicyValueForActor(t *testing.T, seedByte byte, actorID string, action actorauth.Action, target string, revoked bool) json.RawMessage {
+	return actorPolicyValueForContext(t, seedByte, actorID, "ledger:fresh-test", testPolicyV1, action, target, revoked)
+}
+
+func actorPolicyValueForContext(t *testing.T, seedByte byte, actorID, ledgerID, policyVersion string, action actorauth.Action, target string, revoked bool) json.RawMessage {
 	t.Helper()
 	seed := make([]byte, ed25519.SeedSize)
 	for i := range seed {
@@ -170,6 +206,8 @@ func actorPolicyValueForActor(t *testing.T, seedByte byte, actorID string, actio
 	}
 	publicKey := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	raw, err := json.Marshal(map[string]any{
+		"ledger_id":                 ledgerID,
+		"authority_policy_version": policyVersion,
 		"max_proof_lifetime_seconds": int64(300),
 		"keys": []map[string]any{{"actor_id": actorID, "key_id": "key:rotated:v1", "public_key": base64.RawStdEncoding.EncodeToString(publicKey), "revoked": revoked}},
 		"grants": []map[string]any{{"actor_id": actorID, "action": action, "target": target}},
@@ -189,6 +227,8 @@ func malformedActorPolicyValue(t *testing.T) json.RawMessage {
 	seed := make([]byte, ed25519.SeedSize)
 	publicKey := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	raw, err := json.Marshal(map[string]any{
+		"ledger_id":                 "ledger:fresh-test",
+		"authority_policy_version": testPolicyV1,
 		"max_proof_lifetime_seconds": int64(300),
 		"keys": []map[string]any{{"actor_id": "owner:test", "key_id": "revoked-only", "public_key": base64.RawStdEncoding.EncodeToString(publicKey), "revoked": true}},
 		"grants": []map[string]any{{"actor_id": "owner:test", "action": actorauth.ActionOperate, "target": "target:test"}},
