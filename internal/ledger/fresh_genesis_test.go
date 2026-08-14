@@ -7,13 +7,17 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
+	"github.com/armpitpete/threadkeeper-core/internal/contracts"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
+	"github.com/armpitpete/threadkeeper-core/internal/reducer"
+	contractschemas "github.com/armpitpete/threadkeeper-core/schemas"
 )
 
 func TestInitializeFreshGenesisCreatesReplayableRoot(t *testing.T) {
@@ -29,7 +33,7 @@ func TestInitializeFreshGenesisCreatesReplayableRoot(t *testing.T) {
 	if evidence.GenesisCommit == "" || evidence.GenesisCommit != evidence.LedgerCommit {
 		t.Fatalf("fresh ledger is not exactly one Genesis root: %#v", evidence)
 	}
-	if evidence.StoragePath == "" || evidence.GitObjectFormat != "sha1" {
+	if evidence.StoragePath == "" || evidence.GitObjectFormat != "sha1" || evidence.InitialSchemaCount != 2 || evidence.InitialBindingCount != 1 {
 		t.Fatalf("incomplete bootstrap evidence: %#v", evidence)
 	}
 
@@ -132,7 +136,7 @@ func TestFreshGenesisAcceptsDeclaredInitialSchemaRoot(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if evidence.InitialSchemaCount != 1 || evidence.InitialBindingCount != 0 {
+	if evidence.InitialSchemaCount != 3 || evidence.InitialBindingCount != 1 {
 		t.Fatalf("unexpected initial config evidence: %#v", evidence)
 	}
 }
@@ -200,11 +204,20 @@ func TestReplayRejectsNonRegularRootGenesis(t *testing.T) {
 	}
 }
 
-func freshGenesisFixture(t *testing.T, initialSchemas []string) []byte {
+func freshGenesisFixture(t *testing.T, additionalSchemas []string) []byte {
 	t.Helper()
-	if initialSchemas == nil {
-		initialSchemas = []string{}
+	set := map[string]struct{}{
+		contracts.ExclusiveRecordEventSchemaV1: {},
+		contracts.ReducerBindingSchemaV1:      {},
 	}
+	for _, id := range additionalSchemas {
+		set[id] = struct{}{}
+	}
+	initialSchemas := make([]string, 0, len(set))
+	for id := range set {
+		initialSchemas = append(initialSchemas, id)
+	}
+	sort.Strings(initialSchemas)
 	raw, err := json.Marshal(map[string]any{
 		"project_id":               "project:fresh-test",
 		"ledger_id":                "ledger:fresh-test",
@@ -225,8 +238,26 @@ func freshGenesisFixture(t *testing.T, initialSchemas []string) []byte {
 
 func freshGenesisSeed(t *testing.T, extra map[string][]byte) map[string][]byte {
 	t.Helper()
+	bindingCandidate, err := json.Marshal(map[string]any{
+		"schema_version":           contracts.ReducerBindingSchemaV1,
+		"binding_id":               "binding:actor-auth-policy:v1",
+		"record_kind":              actorauth.PolicyRecordKind,
+		"state_model":              reducer.ModelExclusiveV1,
+		"event_schema":             contracts.ExclusiveRecordEventSchemaV1,
+		"authority_policy_version": testPolicyV1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, _, err := digest.Complete(bindingCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
 	seed := map[string][]byte{
-		actorauth.LedgerPolicyPath: writeTestActorPolicy(t, t.TempDir()),
+		actorauth.LedgerPolicyPath:                                  writeTestActorPolicy(t, t.TempDir()),
+		"config/schemas/exclusive-record-event-v1.json":           contractschemas.ExclusiveGovernedRecordEventV1,
+		"config/schemas/reducer-binding-v1.json":                  contractschemas.ReducerBindingV1,
+		"config/authority/reducer-bindings/actor-auth-policy-v1.json": binding,
 	}
 	for path, raw := range extra {
 		seed[path] = raw
