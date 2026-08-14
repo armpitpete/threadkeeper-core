@@ -30,7 +30,7 @@ func TestFreshGenesisRejectsSymlinkedTargetParentBeforeCreation(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := filepath.Join(aliasParent, "ledger.git")
-	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), nil)
+	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, nil))
 	if err == nil || !strings.Contains(err.Error(), "symlinked Git repository root or ancestor") {
 		t.Fatalf("symlinked bootstrap parent = %v", err)
 	}
@@ -57,12 +57,12 @@ func TestFreshGenesisRejectsRootBindingPolicyDifferentFromGenesis(t *testing.T) 
 	}
 	initialSchemas := []string{contracts.ExclusiveRecordEventSchemaV1, contracts.ReducerBindingSchemaV1}
 	target := filepath.Join(t.TempDir(), "policy-mismatch.git")
-	_, err = InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, initialSchemas), map[string][]byte{
+	_, err = InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, initialSchemas), freshGenesisSeed(t, map[string][]byte{
 		"config/schemas/exclusive-record-event-v1.json": contractschemas.ExclusiveGovernedRecordEventV1,
 		"config/schemas/reducer-binding-v1.json":        contractschemas.ReducerBindingV1,
 		"config/authority/reducer-bindings/fresh-policy-mismatch-v1.json": binding,
-	})
-	if err == nil || !strings.Contains(err.Error(), "GENESIS_POLICY_MISMATCH") {
+	}))
+	if err == nil || !strings.Contains(err.Error(), "FRESH_GENESIS_INVALID") || !strings.Contains(err.Error(), "does not match Genesis") {
 		t.Fatalf("root policy mismatch = %v", err)
 	}
 }
@@ -70,7 +70,7 @@ func TestFreshGenesisRejectsRootBindingPolicyDifferentFromGenesis(t *testing.T) 
 func TestFreshGenesisSupportsExplicitDirectAuthoritativeRef(t *testing.T) {
 	const ref = "refs/heads/authority"
 	target := filepath.Join(t.TempDir(), "custom-ref.git")
-	evidence, err := InitializeFreshGenesis(context.Background(), target, ref, freshGenesisFixture(t, nil), nil)
+	evidence, err := InitializeFreshGenesis(context.Background(), target, ref, freshGenesisFixture(t, nil), freshGenesisSeed(t, nil))
 	if err != nil {
 		t.Fatal(err)
 	}

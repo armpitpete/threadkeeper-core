@@ -14,100 +14,97 @@ Implemented and exercised by conformance tests:
 - exclusive governed-record reducer and accepted reducer bindings;
 - internal candidate-write construction, exact-head Git compare-and-swap, durable idempotency and post-CAS replay verification;
 - candidate quarantine integrated into preparation and acceptance: pinned private store, exact-byte storage, prepared H0/H1/path capability binding, raw digest/size verification, 24-hour retention, acceptance cleanup and crash/retry cleanup;
-- crash-durable quarantine publication: private write + file sync + close, no-overwrite root-relative hard-link final publication, pinned-directory sync before success, independent durable convergence for identical visible final material, and fail-closed directory-sync errors;
-- fresh bounded authoritative reconciliation for stale Prepare results and pre-CAS Accept candidate/quarantine failures that may race a concurrent identical acceptance, including the final bound `Ensure`→`Read` window, preserving durable `already_accepted` recovery instead of ordinary candidate/quarantine failure;
-- per-Prepare private random staging identities prevent identical concurrent Prepare operations from sharing temporary cleanup ownership;
-- caller-independent bounded recovery once `update-ref` may have changed authority, including explicit post-CAS verification/unknown-outcome classifications and bounded ref-lock contention settling when an update error is followed by an initial H0 observation;
-- whole-tree `go test -race ./...` is part of the conformance workflow;
-- adversarial repository-isolation regressions for alternates, `commondir`, partial clones/lazy fetch, symlinked authority stores, reftable/worktree config, hostile Git environments and non-regular JSON tree modes;
-- explicit known-safe Git subprocess environment, including Windows case-insensitive environment isolation;
-- concurrent replay/write/idempotency/cancellation safety tests and explicit overload signalling;
-- protocol-neutral Ed25519 actor authentication with proofs bound to ledger, action, exact target, expected prior state and idempotency identity;
-- exact actor + ledger + action + target authorisation grants with revoked-key and expiry handling;
-- service-level authority-write admission that evaluates the hard release kill-switch before actor authentication/authorisation;
+- crash-durable quarantine publication with file + directory durability and fail-closed recovery;
+- fresh bounded reconciliation for stale Prepare/Accept observations, including bound `Ensure`→`Read` cleanup races;
+- caller-independent post-`update-ref` recovery and bounded ref-lock contention settling;
+- whole-tree `go test -race ./...` conformance;
+- hardened Git repository/environment isolation including Windows case-insensitive variants;
+- explicit overload signalling and concurrency safety tests;
+- protocol-neutral Ed25519 proofs bound to actor/key, ledger, action, exact target, expected state and idempotency identity;
+- exact actor + ledger + action + target grants, revoked-key handling and bounded proof lifetime;
+- service-level authority-write admission with the hard release kill-switch evaluated before policy/authentication machinery;
 - explicit hard public/service gate: `AUTHORITY_WRITES_DISABLED`.
 
-## Fresh Genesis candidate under review
+## Fresh Genesis authority installed
 
-PR #40 / Issue #37 adds the missing code-side Fresh Genesis authority boundary:
+Merged PR #40 / Issue #37 as `69b0c3b5f51c9891a78a623621bb64159b9672de` after exact-head conformance #165 and hostile self-review.
 
-- `config/genesis/root.json` is required in the first/root authoritative commit and is validated during every replay;
-- Genesis must remain immutable and an ordinary `100644` blob;
-- the root may contain declared initial schemas and reducer bindings but no durable events;
-- the root schema `$id` set must exactly equal Genesis `initial_schemas`;
-- root reducer bindings must use the Genesis `initial_authority_policy` version;
-- replay digest and recovery proof are bound to Genesis commit/project/ledger/content identity;
-- create-only bare-ledger bootstrap refuses existing targets and checks the target parent against the hardened no-symlink/canonical path boundary before creation;
-- bootstrap uses a controlled Git environment, deterministic parentless root commit and direct authoritative ref, then reopens through the normal hardened Reader/replay/fsck path before success;
-- seed material is limited to initial schema/reducer-binding namespaces;
-- `fresh-genesis-init` emits machine-readable creation evidence;
-- shared ledger/CAS/recovery fixtures are Genesis-rooted so old authority-boundary tests run under the new root invariant.
+Installed:
 
-This is pre-deployment machinery only. The real production Genesis ledger has not been created.
+- immutable root Genesis at `config/genesis/root.json` validated during every replay;
+- exact root schema-set and reducer-policy binding to Genesis;
+- Genesis-rooted replay and recovery identity;
+- create-only isolated Fresh Genesis bare-ledger bootstrap;
+- parent-path, Git-template, direct-ref and restart verification;
+- `fresh-genesis-init` machine-readable evidence;
+- production deployment runbook.
+
+The real production Genesis ledger has **not** yet been instantiated.
+
+## Authoritative actor-policy candidate under review
+
+Issue #41 / PR #42 removes the remaining ambient authentication trust source:
+
+- canonical digest-bound initial actor policy at `config/authority/actor-policy/root.json`;
+- Genesis `initial_authorities` must exactly match actors granted by the root policy;
+- only canonical raw-base64 Ed25519 public keys are trusted; duplicate/unsorted/malformed policy material fails closed;
+- direct later root-policy mutation/removal/rename is rejected during replay;
+- current policy is derived from the exact authoritative ledger snapshot, not runtime caller configuration;
+- governed target `authority:actor-policy` / record kind `core.actor-auth-policy-v1` supports policy creation/rotation through existing exclusive reducer semantics;
+- actor-policy values are semantically validated before candidate acceptance/CAS;
+- governed policy revocation fails closed and never falls back to Genesis;
+- supported Fresh Genesis bootstrap requires the root actor policy plus the event-schema/reducer-binding machinery needed to rotate/revoke it;
+- exported service admission no longer accepts a caller-supplied `actorauth.Policy`;
+- service admission requires request `ledger_id` and `expected_state` to match the exact policy-loading snapshot before Ed25519 authentication/authorization;
+- `AUTHORITY_WRITES_DISABLED` remains the first service check.
+
+This lane does not select real production keys/grants and does not enable public writes.
 
 ## Installed assurance/read capabilities
 
 - genesis trust-root validation plus legacy-adoption validation contract;
-- owner-selected fresh-Genesis deployment path: no legacy governance ledger/head will be fabricated;
+- owner-selected Fresh Genesis deployment path;
 - explicit threat model and single-authority-effect rule;
-- content-addressed source escrow store plus preservation modes;
-- exact-version filesystem source adapter with digest and symlink/traversal protection;
-- stable source registry with immutable version identities;
-- acyclic provenance graph with exact source/version lineage;
-- typed relationship graph and durable conflict-set representation;
-- evidence catalog/envelope with authority separate from retrieval score;
-- bitemporal effective/knowledge time;
-- coverage/completeness and bounded absence claims;
-- confidentiality clearance and governed redaction tombstones;
-- proposal/review bundle with alternatives, dissent and reopening conditions and zero authority effect;
-- deterministic policy-impact simulation comparison;
-- deterministic recovery-fork classification plus explicit operator-resolution candidate workflow that preserves rejected history;
-- destructive non-empty bare-ledger backup/restore proof comparing Genesis identity, exact head, replay and projection digests;
-- verified derived replay checkpoint digests;
-- Ed25519 external witness signing/verification;
-- federated exact references with mandatory local authority disposition;
-- deterministic portable Core export/import with canonical round-trip validation;
-- Core build-provenance model; CI artifact/SBOM packaging remains pending because the current repository automation boundary did not permit workflow mutation in that lane;
-- five-domain health model, incident lifecycle and key lifecycle;
-- read-only reference CLI for genesis, evidence, review bundles, health and recovery proof/compare.
+- content-addressed source escrow and exact-version source adapter;
+- source registry, provenance graph, relationships/conflicts and evidence catalog;
+- bitemporal time, coverage/completeness and confidentiality/redaction models;
+- proposal/review bundles and deterministic policy simulation;
+- recovery-fork classification and explicit operator-resolution workflow;
+- destructive non-empty bare-ledger backup/restore proof comparing Genesis identity, head, replay and projection;
+- verified derived replay checkpoints;
+- Ed25519 external witness primitive;
+- federated references with local authority disposition;
+- deterministic portable Core export/import;
+- build provenance model, health, incident and key-lifecycle models;
+- read-only reference CLI for assurance/recovery inspection.
 
 ## Release governance already established
 
-- repository `main` is protected by an active repository ruleset;
-- deletion and non-fast-forward/force-push updates are blocked;
+- protected `main` ruleset blocks deletion and force/non-fast-forward updates;
 - pull requests are required;
 - review conversations must be resolved;
-- `test` and `windows-git-environment-isolation` are required status checks;
-- required checks are strict against current `main`.
+- strict required checks are `test` and `windows-git-environment-isolation`.
+
+Historical governance remains explicit: PR #11 was owner-authorised without a genuinely independent full Issue #9 PASS.
 
 ## Independent quarantine/CAS review status
 
-- Issue #21 **FAILED** `747f30b4e2af0109f592220aa03b43e1ca1f0543` on exact quarantine commit/path binding and post-CAS cancellation reporting; repaired in `bfe7686856ddec54c2be3e71aa8bc020d2b7a38e`;
-- Issue #25 **FAILED** `bfe7686856ddec54c2be3e71aa8bc020d2b7a38e` on the identical-accept winner-cleanup race; repaired in `6710cb1b5f9d591f7e1653a5adc409581d34a858`;
-- Issue #28 **FAILED** `6710cb1b5f9d591f7e1653a5adc409581d34a858` because matching final bytes could be observed while still creator-owned before file sync/close; repaired through private completed-file publication;
-- Issue #31 found missing quarantine-directory durability and race-gate brittleness;
-- Issue #32 found the final Prepare `Ensure`→`Read` cleanup window and early-H0 ref-lock recovery window;
-- those adjacent defects were consolidated in PR #34 and merged as `fde19f4c03a1915f7d26da493593566a6017bc49` after exact-head conformance #148;
-- independent hostile re-review Issue #36 **PASSED** exact merged commit `fde19f4c03a1915f7d26da493593566a6017bc49`, including independently constructed real-Git CAS/ref-lock attacks. The quarantine/CAS correctness gate is therefore closed subject to its explicitly declared production filesystem ownership assumption.
+The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da493593566a6017bc49`. Independent hostile re-review Issue #36 **PASSED** that exact commit, including independently constructed real-Git CAS/ref-lock attacks. That correctness gate is closed subject to the separate production filesystem-ownership assumption.
 
 ## Remaining protected release work
 
-- the production governance ledger and its first authoritative Fresh Genesis record do not exist yet; after PR #40 is accepted, actual Genesis creation must be combined with service-owned/non-user-writable ledger + quarantine filesystem proof on the real deployment;
-- actor authentication/authorisation cryptography and exact grants exist, but trusted keys/grants are currently supplied as an in-memory `actorauth.Policy`; durable binding/loading of runtime actor policy from authoritative state remains a code-side release blocker before public writes can be enabled;
-- no public authority-write transport is enabled;
-- the final declared load/resource envelope still requires bounded memory/file-descriptor and overload/backpressure evidence;
-- restore from an independently operated secondary backup location remains a deployment/recovery gate;
-- broad existing durable event/config schemas have not yet been migrated to require temporal/coverage/confidentiality fields universally;
-- checkpoint-accelerated replay has not replaced full replay; checkpoint build/verification is installed as an optimisation boundary only;
-- external witness deployment/key service is optional and not configured;
-- federation transport is not configured;
-- Recall/search/vector storage remains deliberately separate and unimplemented;
-- full fresh-install → Genesis → authenticate → write → restart → retry → conflict → restore → replay release acceptance remains outstanding.
+After PR #42 is accepted:
 
-See `docs/operations/FRESH_GENESIS_DEPLOYMENT_V1.md` for the protected production Genesis/ownership procedure once the bootstrap code is accepted.
+1. instantiate the actual production Fresh Genesis ledger with the approved real actor public keys/grants and prove ledger/quarantine filesystem ownership/non-user-writability on that deployment;
+2. declare and prove the final load/resource envelope, including bounded memory/file-descriptor behavior and explicit overload/backpressure;
+3. perform destructive restore from an independently operated secondary backup location and prove exact Genesis/head/replay/projection equivalence;
+4. run full production-shaped end-to-end acceptance: fresh install → Genesis → authoritative policy → authenticate → write → restart → retry → conflict → independent restore → replay;
+5. only then consider removing `AUTHORITY_WRITES_DISABLED` through a separately reviewed release decision.
+
+No public authority-write transport is currently enabled.
+
+Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and GUI unless separately selected.
 
 ## Write status
 
 `AUTHORITY_WRITES_DISABLED`
-
-This remains true until production Genesis instantiation and filesystem ownership proof, durable authoritative actor-policy sourcing, final load/resource proof, independent secondary restore proof and end-to-end release acceptance are separately satisfied.

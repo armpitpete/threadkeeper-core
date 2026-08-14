@@ -12,7 +12,7 @@ import (
 
 func TestFreshGenesisRejectsInvalidRefBeforeTargetCreation(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "must-not-exist.git")
-	_, err := InitializeFreshGenesis(context.Background(), target, "refs/heads/../redirect", freshGenesisFixture(t, nil), nil)
+	_, err := InitializeFreshGenesis(context.Background(), target, "refs/heads/../redirect", freshGenesisFixture(t, nil), freshGenesisSeed(t, nil))
 	if err == nil || !strings.Contains(err.Error(), "invalid authoritative ref") {
 		t.Fatalf("invalid ref = %v", err)
 	}
@@ -23,7 +23,7 @@ func TestFreshGenesisRejectsInvalidRefBeforeTargetCreation(t *testing.T) {
 
 func TestFreshGenesisInitImportsNoGitTemplateHooks(t *testing.T) {
 	target := filepath.Join(t.TempDir(), "template-isolated.git")
-	if _, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), nil); err != nil {
+	if _, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, nil)); err != nil {
 		t.Fatal(err)
 	}
 	hooksPath := filepath.Join(target, "hooks")

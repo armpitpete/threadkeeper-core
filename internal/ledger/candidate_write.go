@@ -149,7 +149,7 @@ func prepareWriteCandidate(ctx context.Context, r *gitledger.Reader, req Candida
 		},
 		Document: doc.Document,
 	}
-	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, gitledger.Commit{ID: "candidate", Parent: manifest.LedgerCommit}, validated); err != nil {
+	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, manifest.GenesisRoot, gitledger.Commit{ID: "candidate", Parent: manifest.LedgerCommit}, validated); err != nil {
 		return nil, nil, fmt.Errorf("%w: reducer validation: %v", ErrCandidateInvalid, err)
 	}
 
@@ -569,7 +569,7 @@ func validateCandidateForAcceptance(ctx context.Context, r *gitledger.Reader, ma
 	if err != nil {
 		return err
 	}
-	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, gitledger.Commit{ID: candidate.CandidateCommit, Parent: manifest.LedgerCommit}, validated); err != nil {
+	if _, err := applyGovernedRecordEvent(manifest.GovernedRecords, bindings, manifest.GenesisRoot, gitledger.Commit{ID: candidate.CandidateCommit, Parent: manifest.LedgerCommit}, validated); err != nil {
 		return fmt.Errorf("%w: candidate reducer validation: %v", ErrCandidateInvalid, err)
 	}
 	return nil

@@ -2,6 +2,8 @@ package ledger
 
 import (
 	"context"
+	"crypto/ed25519"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -9,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/genesis"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
@@ -59,6 +62,9 @@ func TestReplayValidBareLedgerDeterministically(t *testing.T) {
 	}
 	if first.GenesisCommit == "" || first.GenesisRoot.ProjectID != "project:test" || first.GenesisRoot.LedgerID != "ledger:test" {
 		t.Fatalf("replay did not expose test Genesis identity: %#v", first.GenesisRoot)
+	}
+	if first.ActorPolicyVersion != testPolicyV1 || first.ActorPolicyRootContentSHA256 == "" {
+		t.Fatalf("replay did not expose root actor-policy identity: %#v", first)
 	}
 	if first.EventCount != 2 || len(first.Events) != 2 {
 		t.Fatalf("event count = %d, want 2", first.EventCount)
@@ -191,6 +197,54 @@ func writeTestGenesis(t *testing.T, work string, initialSchemas []string) []byte
 		t.Fatal(err)
 	}
 	path := filepath.Join(work, filepath.FromSlash(genesis.LedgerPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, completed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeTestActorPolicy(t, work)
+	return completed
+}
+
+func makeTestActorPolicy(t *testing.T, ledgerID, policyVersion string) []byte {
+	t.Helper()
+	seed := make([]byte, ed25519.SeedSize)
+	for i := range seed {
+		seed[i] = 1
+	}
+	privateKey := ed25519.NewKeyFromSeed(seed)
+	publicKey := privateKey.Public().(ed25519.PublicKey)
+	raw, err := json.Marshal(map[string]any{
+		"ledger_id":                 ledgerID,
+		"authority_policy_version": policyVersion,
+		"max_proof_lifetime_seconds": int64(300),
+		"keys": []map[string]any{{
+			"actor_id":   "owner:test",
+			"key_id":     "key:test:v1",
+			"public_key": base64.RawStdEncoding.EncodeToString(publicKey),
+			"revoked":    false,
+		}},
+		"grants": []map[string]any{{
+			"actor_id": "owner:test",
+			"action":   actorauth.ActionOperate,
+			"target":   "target:test",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	completed, _, err := digest.Complete(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return completed
+}
+
+func writeTestActorPolicy(t *testing.T, work string) []byte {
+	t.Helper()
+	completed := makeTestActorPolicy(t, "ledger:test", testPolicyV1)
+	path := filepath.Join(work, filepath.FromSlash(actorauth.LedgerPolicyPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
 )
@@ -76,6 +77,16 @@ func Apply(current Projection, bindings Bindings, event Event) (Projection, erro
 		return nil, fmt.Errorf("%w: expected exactly one non-empty target", ErrTargetCardinality)
 	}
 	target := event.Targets[0]
+	if event.RecordKind == actorauth.PolicyRecordKind {
+		if target != actorauth.PolicyTarget {
+			return nil, fmt.Errorf("%w: actor policy record must target %q", ErrTransitionInvalid, actorauth.PolicyTarget)
+		}
+		if event.EventType == EventCreated || event.EventType == EventReplaced {
+			if err := actorauth.ValidatePolicyValue(event.Value); err != nil {
+				return nil, fmt.Errorf("%w: actor policy value: %v", ErrTransitionInvalid, err)
+			}
+		}
+	}
 
 	if state, ok := current[target]; ok {
 		if err := validateState(target, state); err != nil {

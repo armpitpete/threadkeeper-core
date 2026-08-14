@@ -1,82 +1,91 @@
 # Remaining Protected Gates
 
-These are the release-critical boundaries still open for Threadkeeper Core v1. Completed historical gates are recorded here only where they materially constrain the remaining work.
+These are the release-critical boundaries still open for Threadkeeper Core v1. Completed historical gates are recorded only where they constrain what follows.
 
-## Completed release prerequisites
+## Completed prerequisites
 
 Established:
 
-- assurance expansion PR #12 is integrated;
-- actor-auth cryptographic/exact-grant primitives are implemented behind the hard service gate;
-- the owner selected Fresh Genesis; no legacy governance ledger/head will be fabricated;
-- recovery-fork classification and explicit operator-resolution workflow are implemented;
-- repository `main` is protected by an active ruleset requiring pull requests, resolved conversations, strict `test` and `windows-git-environment-isolation` checks, while blocking deletion and non-fast-forward/force-push updates;
-- the consolidated quarantine/CAS boundary merged as `fde19f4c03a1915f7d26da493593566a6017bc49` and received an independent hostile **PASS** in Issue #36, including independently constructed real-Git ref/CAS attacks.
+- assurance/recovery foundation integrated;
+- Ed25519 actor proof and exact-grant primitives implemented;
+- owner-selected Fresh Genesis path; no legacy governance ledger/head will be fabricated;
+- recovery-fork workflow implemented;
+- protected `main` ruleset active;
+- consolidated quarantine/CAS boundary merged as `fde19f4c03a1915f7d26da493593566a6017bc49` and independently **PASSED** Issue #36;
+- Fresh Genesis authority/bootstrap merged as `69b0c3b5f51c9891a78a623621bb64159b9672de` after exact-head conformance #165 and hostile self-review.
 
-Historical governance remains explicit: PR #11 was owner-authorised and merged as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b` without a genuinely independent full Issue #9 PASS. That exception is preserved as history; it is not rewritten as a review that occurred.
+Historical governance remains explicit: PR #11 was owner-authorised and merged without a genuinely independent full Issue #9 PASS. That exception is not rewritten as a review that occurred.
 
-None of these facts enables public authority writes by itself.
+None of these facts enables public authority writes.
 
-## 1. Fresh Genesis bootstrap integration
+## 1. Authoritative actor-policy sourcing
 
-Issue #37 / PR #40 is the current code-side gate. The candidate makes Genesis part of actual authoritative history and adds a create-only Fresh Genesis initializer.
+Issue #41 / PR #42 is the current code-side gate.
 
-Acceptance requires exact-head conformance and hostile self-review of:
+Acceptance requires:
 
-- fixed root Genesis identity/path/mode and immutability;
-- no durable events in the Genesis commit;
-- exact initial schema-set binding and initial reducer-policy binding;
-- create-only/no-overwrite behavior;
-- controlled Git environment and direct ref creation;
-- pre-creation parent-path safety and post-creation hardened Reader/replay/fsck verification;
-- recovery-proof binding to Genesis identity;
-- preservation of the hard write kill-switch.
+- strict canonical/digest-bound root actor policy;
+- exact Genesis `initial_authorities` reconciliation;
+- immutable root policy path;
+- authoritative current policy derived from exact replay state;
+- governed rotation/replacement at fixed target `authority:actor-policy`;
+- malformed rotations rejected before CAS;
+- revocation failing closed rather than reverting to root policy;
+- exported service admission unable to accept a caller-supplied substitute policy;
+- exact ledger/head binding before Ed25519 authentication;
+- hard `AUTHORITY_WRITES_DISABLED` check still first;
+- complete exact-head conformance and hostile self-review.
 
-This gate creates deployment machinery, not the production ledger.
+The supported Fresh Genesis bootstrap must include the actor-policy root and reducer binding needed to rotate/revoke it.
 
-## 2. Production Genesis + filesystem ownership
+## 2. Production Fresh Genesis + filesystem ownership
 
-After the bootstrap implementation is accepted, perform one real deployment gate that both:
+After actor-policy sourcing is accepted, perform one real deployment gate that both:
 
-1. creates the actual dedicated production governance ledger with Fresh Genesis; and
-2. proves the ledger and sibling quarantine storage are service-owned and non-writable by untrusted users/processes.
+1. creates the actual dedicated production governance ledger with Fresh Genesis and its real approved actor public-key/grant policy; and
+2. proves ledger and sibling quarantine storage are service-owned and non-writable by untrusted users/processes.
 
-The evidence must bind the real host, path, service identity, project/ledger IDs, authority-policy identity, initial authorities, initial schema/binding seed, authoritative ref, Genesis commit/head, replay/recovery proof and platform-native permissions/ACLs.
+Evidence must bind the actual host, paths, service identity, project/ledger IDs, authority-policy version, actor IDs/public keys/grants, initial schema/binding seed, authoritative ref, Genesis/policy digests, Genesis commit/head, replay/recovery proof and platform-native permissions/ACLs.
 
-Source-repository commits, copied test ledgers and `.threadkeeper/state.json` are not substitutes for production ledger identity.
+Private signing keys are never ledger or deployment-evidence material.
 
 See `docs/operations/FRESH_GENESIS_DEPLOYMENT_V1.md`.
 
-## 3. Durable actor-policy sourcing
+## 3. Final load/resource envelope
 
-The Ed25519 proof and exact-grant primitive is implemented, but service admission currently receives trusted keys/grants as an in-memory `actorauth.Policy` supplied by its caller.
+Declare the selected production envelope and prove bounded resource behavior under it, including:
 
-Before public writes can be enabled, the deployed service must load and validate its trusted actor keys/grants from an authoritative, versioned source bound to the ledger trust domain. Runtime configuration must not be able to silently substitute a different authority policy than the one the ledger/Genesis identifies.
+- concurrent replay and write/conflict behavior;
+- explicit overload/backpressure;
+- bounded memory growth;
+- bounded file-descriptor/handle growth;
+- restart/recovery behavior under load;
+- hard write kill-switch effectiveness under concurrency.
 
-This is a code/review gate, not merely an operations checkbox.
+The existing logical concurrency tests are necessary but not sufficient for this operational gate.
 
-## 4. Final load/resource envelope
+## 4. Independent secondary restore
 
-The existing concurrency, CAS, idempotency, cancellation and explicit-overload tests are necessary but are not the full production envelope. Declare and prove bounded resource behavior for the selected deployment, including memory and file-descriptor growth and explicit overload/backpressure behavior.
+Perform a destructive restore from an independently operated secondary backup location and prove exact Genesis identity, authoritative head, replay and projection equivalence. Another directory on the same authority boundary is not sufficient evidence.
 
-## 5. Independent secondary restore
+## 5. End-to-end release acceptance
 
-Perform a destructive restore test from an independently operated secondary backup location and prove exact Genesis identity, authoritative head, replay and projection equivalence. A backup copied to another path on the same authority boundary is not sufficient evidence for this gate.
-
-## 6. End-to-end release acceptance
-
-After the preceding gates are satisfied, run the complete production-shaped acceptance sequence:
+Run the complete production-shaped sequence:
 
 fresh install → create Fresh Genesis ledger → load authoritative actor policy → authenticate → authorised write → restart → idempotent retry → concurrent conflict → independent restore → replay.
 
-The final Genesis identity, authoritative state and deterministic projection must agree across the sequence.
+Require identical final Genesis identity, authoritative state and deterministic projection.
+
+## 6. Release decision
+
+Only after every preceding gate passes may a separate reviewed release decision consider removing `AUTHORITY_WRITES_DISABLED` and exposing any public authority-write transport.
 
 ## Public write status
 
 `AUTHORITY_WRITES_DISABLED`
 
-It remains mandatory until every release-critical gate above is accepted. No merge, deployment step or test result silently authorises a public authority-write transport.
+No merge, deployment step, test result or authentication success silently authorises public authority writes.
 
 ## Optional operational integrations
 
-These are not prerequisites for Core v1 unless the deployment selects them: external witness service/key deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, and human GUI. Their contracts/primitives must not be confused with enabled services.
+Not Core v1 prerequisites unless selected: external witness service/key deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and human GUI.
