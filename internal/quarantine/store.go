@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 type Store struct {
@@ -193,6 +195,50 @@ func (s *Store) Remove(id string) error {
 		return fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: candidate is not a regular file")
 	}
 	return s.root.Remove(name)
+}
+
+// PruneBefore removes only well-formed regular candidate files whose mtime is
+// at or before cutoff. Suspicious candidate-shaped filesystem entries fail
+// closed rather than being followed or silently ignored.
+func (s *Store) PruneBefore(cutoff time.Time) (int, error) {
+	dir, err := s.root.Open(".")
+	if err != nil {
+		return 0, err
+	}
+	entries, err := dir.ReadDir(-1)
+	closeErr := dir.Close()
+	if err != nil {
+		return 0, err
+	}
+	if closeErr != nil {
+		return 0, closeErr
+	}
+	removed := 0
+	for _, entry := range entries {
+		name := entry.Name()
+		if !strings.HasSuffix(name, ".candidate") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".candidate")
+		if !validID(id) {
+			return removed, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: unsafe candidate filename %q", name)
+		}
+		info, err := s.root.Lstat(name)
+		if err != nil {
+			return removed, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return removed, fmt.Errorf("QUARANTINE_INTEGRITY_FAILURE: candidate %q is not a regular file", id)
+		}
+		if info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := s.root.Remove(name); err != nil {
+			return removed, err
+		}
+		removed++
+	}
+	return removed, nil
 }
 
 func candidateName(id string) string { return id + ".candidate" }
