@@ -14,6 +14,10 @@ type RecoveryProof struct {
 	LedgerCommit          string `json:"ledger_commit"`
 	AuthoritativeRef      string `json:"authoritative_ref"`
 	GitObjectFormat       string `json:"git_object_format"`
+	GenesisCommit         string `json:"genesis_commit"`
+	ProjectID             string `json:"project_id"`
+	LedgerID              string `json:"ledger_id"`
+	GenesisContentSHA256  string `json:"genesis_content_sha256"`
 	HistoryCommitCount    int    `json:"history_commit_count"`
 	EventCount            int    `json:"event_count"`
 	ReducerBindingCount   int    `json:"reducer_binding_count"`
@@ -34,6 +38,10 @@ func ProveRecovery(ctx context.Context, r *gitledger.Reader) (*RecoveryProof, er
 		LedgerCommit:          manifest.LedgerCommit,
 		AuthoritativeRef:      manifest.AuthoritativeRef,
 		GitObjectFormat:       manifest.GitObjectFormat,
+		GenesisCommit:         manifest.GenesisCommit,
+		ProjectID:             manifest.GenesisRoot.ProjectID,
+		LedgerID:              manifest.GenesisRoot.LedgerID,
+		GenesisContentSHA256:  manifest.GenesisRoot.ContentSHA256,
 		HistoryCommitCount:    manifest.HistoryCommitCount,
 		EventCount:            manifest.EventCount,
 		ReducerBindingCount:   manifest.ReducerBindingCount,
@@ -44,8 +52,8 @@ func ProveRecovery(ctx context.Context, r *gitledger.Reader) (*RecoveryProof, er
 }
 
 // CompareRecoveryProofs requires semantic and historical equivalence. A
-// restored repository with a different ref name, head, event set or projection
-// does not silently qualify as the same recovered authority.
+// restored repository with a different Genesis identity, ref name, head, event
+// set or projection does not silently qualify as the same recovered authority.
 func CompareRecoveryProofs(original, restored RecoveryProof) error {
 	if original != restored {
 		return fmt.Errorf("RECOVERY_PROOF_MISMATCH: original=%+v restored=%+v", original, restored)
