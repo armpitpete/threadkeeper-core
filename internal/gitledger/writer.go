@@ -10,12 +10,17 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
-	ErrStaleState        = errors.New("STALE_STATE")
-	ErrCandidateNotChild = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrStaleState          = errors.New("STALE_STATE")
+	ErrCandidateNotChild   = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrCASOutcomeUnknown   = errors.New("POST_CAS_RECOVERY_REQUIRED")
+	ErrPostCASVerification = errors.New("POST_CAS_VERIFICATION_FAILED")
 )
+
+const casRecoveryTimeout = 30 * time.Second
 
 type CandidateCommit struct {
 	ExpectedHead string
@@ -145,6 +150,9 @@ func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candida
 // CompareAndSwap advances the authoritative ref only if it still equals the
 // expected head. A candidate must be the exact single-parent child of that
 // head. Repository hooks are bypassed so they cannot become hidden authority.
+//
+// Once update-ref is invoked, outcome recovery no longer depends on the caller
+// context: that context may be cancelled after Git has already moved authority.
 func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateCommit string) error {
 	if !isObjectID(expectedHead) || !isObjectID(candidateCommit) {
 		return fmt.Errorf("invalid compare-and-swap object id")
@@ -181,24 +189,57 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	// symbolic ref introduced by a filesystem race therefore cannot redirect
 	// mutation to its target; static symbolic refs are rejected before this
 	// point by checkAuthoritativeRefSafety.
-	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead); err != nil {
-		now, headErr := r.Head(ctx)
-		if headErr == nil && now != expectedHead {
-			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
+	_, updateErr := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead)
+
+	// From this point onward the caller context is not evidence about whether
+	// authority moved. Resolve the authoritative ref using a fresh bounded
+	// context even when update-ref itself returned an error (for example because
+	// the caller was cancelled after Git performed the atomic ref change).
+	got, recoveryErr := r.recoverHeadAfterCAS()
+	if updateErr != nil {
+		if recoveryErr != nil {
+			return fmt.Errorf("%w: update-ref returned %v; authoritative-head recovery failed: %v", ErrCASOutcomeUnknown, updateErr, recoveryErr)
 		}
-		return err
+		switch got {
+		case candidateCommit:
+			// Git moved authority before the caller-side command failure became
+			// observable. Treat the transition as accepted and continue normal
+			// post-acceptance verification in the ledger layer.
+			return nil
+		case expectedHead:
+			// The exact ref is still H0, so this invocation did not accept H1.
+			return updateErr
+		default:
+			// Another exact-head writer won the race. Under the service-owned
+			// authority-store model, a failed H0->H1 CAS cannot have first moved
+			// H1 and then produced this different head.
+			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, got)
+		}
 	}
+
+	// A successful update-ref means H1 was authoritative at the atomic update.
+	// Any inability to prove the resulting repository/head is therefore an
+	// explicit post-CAS recovery condition, never an ordinary write failure.
+	if recoveryErr != nil {
+		return fmt.Errorf("%w: update-ref accepted %s but verification failed: %v", ErrPostCASVerification, candidateCommit, recoveryErr)
+	}
+	if got != candidateCommit {
+		return fmt.Errorf("%w: update-ref accepted %s but ref now resolves to %s", ErrPostCASVerification, candidateCommit, got)
+	}
+	return nil
+}
+
+func (r *Reader) recoverHeadAfterCAS() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), casRecoveryTimeout)
+	defer cancel()
 	if err := r.CheckHistorySafety(ctx); err != nil {
-		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: repository safety check: %w", err)
+		return "", fmt.Errorf("repository safety check: %w", err)
 	}
 	got, err := r.Head(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	if got != candidateCommit {
-		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: ref resolved to %s want %s", got, candidateCommit)
-	}
-	return nil
+	return got, nil
 }
 
 func (r *Reader) verifyExactChild(ctx context.Context, expectedHead, candidateCommit string) error {
