@@ -53,12 +53,8 @@ func TestIssue25WinnerCleanupRecoversConcurrentExactRequest(t *testing.T) {
 		bDone <- result{response: resp, err: err}
 	}()
 
-	// B has already replayed H0, found no accepted K, passed preflight, opened
-	// the quarantine store, and is now paused immediately before Read(Q).
 	<-beforeRead
 
-	// A wins the exact same request, makes H1 authoritative, verifies it, and
-	// removes Q as normal successful-acceptance cleanup.
 	aResponse, err := AcceptWriteCandidate(context.Background(), r, *candidate)
 	if err != nil {
 		t.Fatal(err)
@@ -73,8 +69,6 @@ func TestIssue25WinnerCleanupRecoversConcurrentExactRequest(t *testing.T) {
 		t.Fatalf("winner did not remove bound quarantine entry: %v", err)
 	}
 
-	// B now observes the missing Q. It must fresh-replay authority and recover
-	// the durable exact request as already_accepted rather than CANDIDATE_INVALID.
 	releaseOnce.Do(func() { close(releaseRead) })
 	b := <-bDone
 	if b.err != nil {
@@ -90,8 +84,6 @@ func TestIssue25WinnerCleanupRecoversConcurrentExactRequest(t *testing.T) {
 		t.Fatalf("loser ledger commit = %s want winner snapshot %s", b.response.LedgerCommit, aResponse.LedgerCommit)
 	}
 
-	// Restart-style recovery must remain reconstructable solely from durable
-	// authority after the quarantine entry is gone.
 	restarted, err := gitledger.New(r.GitDir(), gitledger.DefaultRef)
 	if err != nil {
 		t.Fatal(err)
@@ -157,9 +149,6 @@ func TestIssue25PrepareRacingAcceptanceReconcilesAlreadyAccepted(t *testing.T) {
 		prepareDone <- prepareResult{candidate: candidate, response: response, err: err}
 	}()
 
-	// The racing Prepare has captured H0, built the exact H1 candidate and
-	// materialised its bound quarantine entry, but has not yet checked whether
-	// H0 is still authoritative.
 	<-beforeFinalCheck
 
 	accepted, err := AcceptWriteCandidate(context.Background(), r, *winnerCandidate)
@@ -214,7 +203,6 @@ func TestIssue25StagedPrepareRacingAcceptanceCleansStageAndRecovers(t *testing.T
 	}
 
 	boundPath := filepath.Join(r.CandidateQuarantineDir(), winnerCandidate.Quarantine.ID+".candidate")
-	stagePath := filepath.Join(r.CandidateQuarantineDir(), quarantineStageID(event)+".candidate")
 	beforeEventCommit := make(chan struct{})
 	releaseEventCommit := make(chan struct{})
 	var releaseOnce sync.Once
@@ -236,12 +224,15 @@ func TestIssue25StagedPrepareRacingAcceptanceCleansStageAndRecovers(t *testing.T
 		prepareDone <- prepareResult{candidate: candidate, response: response, err: err}
 	}()
 
-	// The racing Prepare has captured H0 and staged the exact bytes, but it has
-	// not yet allowed PrepareEventCommit to recheck whether H0 is still current.
 	<-beforeEventCommit
-	if _, err := os.Stat(stagePath); err != nil {
-		t.Fatalf("racing Prepare did not materialise staging entry: %v", err)
+	stageMatches, err := filepath.Glob(filepath.Join(r.CandidateQuarantineDir(), quarantineStagePrefix+"*.candidate"))
+	if err != nil {
+		t.Fatal(err)
 	}
+	if len(stageMatches) != 1 {
+		t.Fatalf("racing Prepare staging entries = %v, want exactly one private stage", stageMatches)
+	}
+	stagePath := stageMatches[0]
 
 	accepted, err := AcceptWriteCandidate(context.Background(), r, *winnerCandidate)
 	if err != nil {
