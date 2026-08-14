@@ -85,8 +85,25 @@ func DecodeProvenance(raw []byte) (Provenance, error) {
 	if err := decoder.Decode(&p); err != nil {
 		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: decode: %w", err)
 	}
+	if err := p.Validate(); err != nil {
+		return Provenance{}, err
+	}
+	return p, nil
+}
+
+// Validate rechecks semantic and digest integrity for callers that construct a
+// Provenance value directly rather than through DecodeProvenance. This prevents
+// the typed API from becoming a bypass around the strict durable-document path.
+func (p Provenance) Validate() error {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: marshal: %w", err)
+	}
+	if err := digest.Verify(raw); err != nil {
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: %w", err)
+	}
 	if p.SchemaVersion != ProvenanceSchemaV1 {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: schema_version %q is unsupported", p.SchemaVersion)
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: schema_version %q is unsupported", p.SchemaVersion)
 	}
 	for name, value := range map[string]string{
 		"primary_authority_domain_id":   p.PrimaryAuthorityDomainID,
@@ -97,46 +114,46 @@ func DecodeProvenance(raw []byte) (Provenance, error) {
 		"backup_artifact_id":            p.BackupArtifactID,
 	} {
 		if !safeIdentifier.MatchString(value) {
-			return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: %s is unsafe or empty", name)
+			return fmt.Errorf("RESTORE_PROVENANCE_INVALID: %s is unsafe or empty", name)
 		}
 	}
 	if p.PrimaryAuthorityDomainID == p.SecondaryAuthorityDomainID {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: primary and secondary authority-domain IDs must differ")
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: primary and secondary authority-domain IDs must differ")
 	}
 	if err := requireSHA256("backup_artifact_sha256", p.BackupArtifactSHA256); err != nil {
-		return Provenance{}, err
+		return err
 	}
 	if err := requireSHA256("original_recovery_proof_sha256", p.OriginalRecoveryProofSHA256); err != nil {
-		return Provenance{}, err
+		return err
 	}
 	captured, err := time.Parse(time.RFC3339Nano, p.CapturedAt)
 	if err != nil {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: captured_at must be RFC3339: %w", err)
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: captured_at must be RFC3339: %w", err)
 	}
 	restored, err := time.Parse(time.RFC3339Nano, p.RestoredAt)
 	if err != nil {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: restored_at must be RFC3339: %w", err)
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: restored_at must be RFC3339: %w", err)
 	}
 	if restored.Before(captured) {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: restored_at precedes captured_at")
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: restored_at precedes captured_at")
 	}
 	if len(p.ExternalEvidenceRefs) == 0 {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: at least one external_evidence_ref is required")
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: at least one external_evidence_ref is required")
 	}
 	if !sort.StringsAreSorted(p.ExternalEvidenceRefs) {
-		return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: external_evidence_refs must be sorted")
+		return fmt.Errorf("RESTORE_PROVENANCE_INVALID: external_evidence_refs must be sorted")
 	}
 	seen := map[string]struct{}{}
 	for _, ref := range p.ExternalEvidenceRefs {
 		if ref == "" || len(ref) > 2048 || strings.ContainsAny(ref, "\x00\r\n") {
-			return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: external evidence reference is unsafe or empty")
+			return fmt.Errorf("RESTORE_PROVENANCE_INVALID: external evidence reference is unsafe or empty")
 		}
 		if _, exists := seen[ref]; exists {
-			return Provenance{}, fmt.Errorf("RESTORE_PROVENANCE_INVALID: duplicate external evidence reference %q", ref)
+			return fmt.Errorf("RESTORE_PROVENANCE_INVALID: duplicate external evidence reference %q", ref)
 		}
 		seen[ref] = struct{}{}
 	}
-	return p, nil
+	return nil
 }
 
 func requireSHA256(name, value string) error {
