@@ -64,7 +64,7 @@ func InitializeFreshGenesis(ctx context.Context, gitDir, ref string, rawGenesis 
 	if !ok {
 		return nil, fmt.Errorf("FRESH_GENESIS_INVALID: seed root must supply authoritative actor policy %q", actorauth.LedgerPolicyPath)
 	}
-	policyDoc, _, err := actorauth.ParsePolicyDocument(policyRaw, root.LedgerID)
+	policyDoc, _, err := actorauth.ParsePolicyDocument(policyRaw, root.LedgerID, root.InitialAuthorityPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("FRESH_GENESIS_INVALID: %w", err)
 	}
