@@ -36,12 +36,13 @@ type PolicyGrantDocument struct {
 	Target  string `json:"target"`
 }
 
-// PolicyDocument is the authoritative policy value. Ledger and policy-version
-// identity are deliberately not duplicated here: they are supplied by the
-// immutable Genesis root and accepted reducer binding. That prevents a mutable
-// policy value from claiming a different trust domain while retaining the same
-// governed-record target.
+// PolicyDocument is the authoritative actor-auth trust policy. Ledger and
+// authority-policy identity are part of the digest-bound canonical bytes so an
+// otherwise identical key/grant set cannot be transplanted into another trust
+// domain merely by supplying different runtime context.
 type PolicyDocument struct {
+	LedgerID                string                `json:"ledger_id"`
+	AuthorityPolicyVersion  string                `json:"authority_policy_version"`
 	MaxProofLifetimeSeconds int64                 `json:"max_proof_lifetime_seconds"`
 	Keys                    []PolicyKeyDocument   `json:"keys"`
 	Grants                  []PolicyGrantDocument `json:"grants"`
@@ -49,13 +50,26 @@ type PolicyDocument struct {
 }
 
 // ParsePolicyDocument validates a canonical, digest-bound authoritative actor
-// policy and converts it to the exact in-memory structure consumed by proof
-// verification. ledgerID is supplied by the authoritative Genesis snapshot and
-// is copied into every exact grant; it is never trusted from the policy value.
-func ParsePolicyDocument(raw []byte, ledgerID string) (PolicyDocument, Policy, error) {
-	if ledgerID == "" {
-		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: authoritative ledger_id is required")
+// policy and requires its declared trust-domain identity to match the exact
+// authoritative ledger and authority-policy version supplied by the caller.
+func ParsePolicyDocument(raw []byte, expectedLedgerID, expectedPolicyVersion string) (PolicyDocument, Policy, error) {
+	if expectedLedgerID == "" || expectedPolicyVersion == "" {
+		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: expected ledger_id and authority_policy_version are required")
 	}
+	doc, policy, err := parsePolicyDocument(raw)
+	if err != nil {
+		return PolicyDocument{}, Policy{}, err
+	}
+	if doc.LedgerID != expectedLedgerID {
+		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: ledger_id %q does not match authoritative ledger %q", doc.LedgerID, expectedLedgerID)
+	}
+	if doc.AuthorityPolicyVersion != expectedPolicyVersion {
+		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: authority_policy_version %q does not match authoritative policy %q", doc.AuthorityPolicyVersion, expectedPolicyVersion)
+	}
+	return doc, policy, nil
+}
+
+func parsePolicyDocument(raw []byte) (PolicyDocument, Policy, error) {
 	if err := strictjson.Validate(raw); err != nil {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: %w", err)
 	}
@@ -74,6 +88,9 @@ func ParsePolicyDocument(raw []byte, ledgerID string) (PolicyDocument, Policy, e
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: decode: %w", err)
+	}
+	if doc.LedgerID == "" || doc.AuthorityPolicyVersion == "" || strings.ContainsAny(doc.LedgerID+doc.AuthorityPolicyVersion, "\x00\r\n") {
+		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: safe ledger_id and authority_policy_version are required")
 	}
 	if doc.MaxProofLifetimeSeconds <= 0 || doc.MaxProofLifetimeSeconds > math.MaxInt64/int64(time.Second) {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: max_proof_lifetime_seconds must be positive and representable")
@@ -137,7 +154,7 @@ func ParsePolicyDocument(raw []byte, ledgerID string) (PolicyDocument, Policy, e
 		if !activeKeys[grantDoc.ActorID] {
 			return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: granted actor %q has no active trusted key", grantDoc.ActorID)
 		}
-		policy.Grants = append(policy.Grants, Grant{ActorID: grantDoc.ActorID, LedgerID: ledgerID, Action: grantDoc.Action, Target: grantDoc.Target})
+		policy.Grants = append(policy.Grants, Grant{ActorID: grantDoc.ActorID, LedgerID: doc.LedgerID, Action: grantDoc.Action, Target: grantDoc.Target})
 	}
 	if err := validatePolicy(policy); err != nil {
 		return PolicyDocument{}, Policy{}, err
@@ -145,11 +162,11 @@ func ParsePolicyDocument(raw []byte, ledgerID string) (PolicyDocument, Policy, e
 	return doc, policy, nil
 }
 
-// ValidatePolicyValue performs the same semantic validation used by service
-// admission without assigning authority to a real ledger. It is used by the
-// reducer to reject malformed policy rotations before they can reach CAS.
+// ValidatePolicyValue validates canonical actor-policy structure and internal
+// key/grant semantics. Exact ledger/policy-version matching is enforced by the
+// ledger replay boundary, which has the authoritative Genesis/binding context.
 func ValidatePolicyValue(raw []byte) error {
-	_, _, err := ParsePolicyDocument(raw, "validation:ledger")
+	_, _, err := parsePolicyDocument(raw)
 	return err
 }
 
