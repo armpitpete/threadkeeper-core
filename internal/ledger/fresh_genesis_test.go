@@ -114,17 +114,11 @@ func TestFreshGenesisInitialSchemaSetMustMatchRoot(t *testing.T) {
 	_, err := InitializeFreshGenesis(context.Background(), target, gitledger.DefaultRef, freshGenesisFixture(t, nil), freshGenesisSeed(t, map[string][]byte{
 		"config/schemas/event/test-v1.json": testSchema,
 	}))
-	if err == nil || !strings.Contains(err.Error(), "GENESIS_SCHEMA_MISMATCH") {
+	if err == nil || !strings.Contains(err.Error(), "initial_schemas") {
 		t.Fatalf("schema mismatch = %v", err)
 	}
-
-	r, openErr := gitledger.New(target, gitledger.DefaultRef)
-	if openErr != nil {
-		t.Fatal(openErr)
-	}
-	defer r.Close()
-	if _, replayErr := Replay(context.Background(), r); replayErr == nil || !strings.Contains(replayErr.Error(), "GENESIS_SCHEMA_MISMATCH") {
-		t.Fatalf("partial bootstrap residue became valid: %v", replayErr)
+	if _, statErr := os.Lstat(target); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("schema mismatch created target: %v", statErr)
 	}
 }
 
@@ -254,9 +248,9 @@ func freshGenesisSeed(t *testing.T, extra map[string][]byte) map[string][]byte {
 		t.Fatal(err)
 	}
 	seed := map[string][]byte{
-		actorauth.LedgerPolicyPath:                                  writeTestActorPolicy(t, t.TempDir()),
-		"config/schemas/exclusive-record-event-v1.json":           contractschemas.ExclusiveGovernedRecordEventV1,
-		"config/schemas/reducer-binding-v1.json":                  contractschemas.ReducerBindingV1,
+		actorauth.LedgerPolicyPath:                                      writeTestActorPolicy(t, t.TempDir()),
+		"config/schemas/exclusive-record-event-v1.json":               contractschemas.ExclusiveGovernedRecordEventV1,
+		"config/schemas/reducer-binding-v1.json":                      contractschemas.ReducerBindingV1,
 		"config/authority/reducer-bindings/actor-auth-policy-v1.json": binding,
 	}
 	for path, raw := range extra {
