@@ -268,13 +268,10 @@ func rebindProvenance(t *testing.T, p Provenance) Provenance {
 	if err != nil {
 		t.Fatal(err)
 	}
-	completed, _, err := digest.Complete(raw)
+	_, contentSHA, err := digest.Complete(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rebound, err := DecodeProvenance(completed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return rebound
+	p.ContentSHA256 = contentSHA
+	return p
 }
