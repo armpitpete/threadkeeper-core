@@ -88,7 +88,7 @@ Passing this lane will close **load-proof machinery only**. The actual productio
 - source registry, provenance graph, relationships/conflicts and evidence catalog;
 - bitemporal time, coverage/completeness and confidentiality/redaction models;
 - proposal/review bundles and deterministic policy simulation;
-- recovery fork classification and explicit operator-resolution workflow;
+- recovery-fork classification and explicit operator-resolution workflow;
 - destructive non-empty bare-ledger backup/restore proof comparing Genesis identity, head, replay and projection;
 - verified derived replay checkpoints;
 - Ed25519 external witness primitive;
