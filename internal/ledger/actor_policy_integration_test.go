@@ -61,7 +61,7 @@ func TestPrepareRejectsMalformedActorPolicyRotationBeforeCAS(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") {
 		t.Fatalf("malformed actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
-	assertHeadUnchanged(t, r, head)
+	assertActorPolicyHeadUnchanged(t, r, head)
 }
 
 func TestPrepareRejectsWrongActorPolicyLedgerBeforeCAS(t *testing.T) {
@@ -73,7 +73,7 @@ func TestPrepareRejectsWrongActorPolicyLedgerBeforeCAS(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") || !strings.Contains(err.Error(), "ledger_id") {
 		t.Fatalf("wrong-ledger actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
-	assertHeadUnchanged(t, r, head)
+	assertActorPolicyHeadUnchanged(t, r, head)
 }
 
 func TestPrepareRejectsWrongActorPolicyVersionBeforeCAS(t *testing.T) {
@@ -85,7 +85,7 @@ func TestPrepareRejectsWrongActorPolicyVersionBeforeCAS(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "AUTH_POLICY_INVALID") || !strings.Contains(err.Error(), "authority_policy_version") {
 		t.Fatalf("wrong-version actor policy prepared candidate=%#v response=%#v err=%v", candidate, response, err)
 	}
-	assertHeadUnchanged(t, r, head)
+	assertActorPolicyHeadUnchanged(t, r, head)
 }
 
 func TestGovernedActorPolicyRotationIsLoadedAfterRestart(t *testing.T) {
@@ -161,7 +161,7 @@ func TestGovernedActorPolicyRevocationFailsClosed(t *testing.T) {
 	}
 }
 
-func assertHeadUnchanged(t *testing.T, r *gitledger.Reader, want string) {
+func assertActorPolicyHeadUnchanged(t *testing.T, r *gitledger.Reader, want string) {
 	t.Helper()
 	got, err := r.Head(context.Background())
 	if err != nil {
