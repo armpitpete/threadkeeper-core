@@ -112,6 +112,7 @@ func TestVerifyRevalidatesDirectlyConstructedProvenance(t *testing.T) {
 	defer r.Close()
 	provenance := provenanceForProof(t, originalProof)
 	provenance.SecondaryAuthorityDomainID = provenance.PrimaryAuthorityDomainID
+	provenance = rebindProvenance(t, provenance)
 	if _, err := Verify(context.Background(), r, originalProof, provenance); err == nil || !strings.Contains(err.Error(), "must differ") {
 		t.Fatalf("directly constructed contradictory provenance accepted: %v", err)
 	}
