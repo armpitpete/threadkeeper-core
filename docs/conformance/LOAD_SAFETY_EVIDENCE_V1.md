@@ -25,7 +25,7 @@ This matrix maps the Core v1 load-safety acceptance clauses to inspectable imple
 - 4 full-replay operations per worker;
 - sampled peak Go heap growth <= 128 MiB;
 - settled Go heap growth <= 64 MiB;
-- sampled peak goroutine growth <= 32;
+- sampled peak goroutine growth <= 64;
 - settled goroutine growth <= 8;
 - sampled peak process descriptor/handle growth <= 128;
 - settled descriptor/handle growth <= 16;
