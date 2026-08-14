@@ -14,10 +14,11 @@ import (
 )
 
 var (
-	ErrStaleState          = errors.New("STALE_STATE")
-	ErrCandidateNotChild   = errors.New("CANDIDATE_NOT_EXACT_CHILD")
-	ErrCASOutcomeUnknown   = errors.New("POST_CAS_RECOVERY_REQUIRED")
-	ErrPostCASVerification = errors.New("POST_CAS_VERIFICATION_FAILED")
+	ErrStaleState            = errors.New("STALE_STATE")
+	ErrCandidateNotChild     = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrCASOutcomeUnknown     = errors.New("POST_CAS_RECOVERY_REQUIRED")
+	ErrPostCASVerification   = errors.New("POST_CAS_VERIFICATION_FAILED")
+	ErrCASAcceptanceRecovered = fmt.Errorf("%w: CAS_ACCEPTANCE_RECOVERED", ErrStaleState)
 )
 
 const casRecoveryTimeout = 30 * time.Second
@@ -207,9 +208,13 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 			return fmt.Errorf("%w: update-ref returned %v; authoritative-state recovery failed: %v", ErrCASOutcomeUnknown, updateErr, recoveryErr)
 		}
 		if recovered.CandidateInHistory {
-			// Git made H1 authoritative before the caller-side command failure
-			// became observable. H1 may already have a later descendant.
-			return nil
+			// H1 is durably authoritative or in the current authoritative history,
+			// but because update-ref itself returned an error this invocation cannot
+			// prove whether it performed the transition or an identical concurrent
+			// writer did. Return an explicit recovered-acceptance condition which
+			// also unwraps to STALE_STATE so the ledger layer reconstructs the
+			// durable idempotent result as already_accepted.
+			return fmt.Errorf("%w: candidate %s is present in recovered authoritative history after update-ref error: %v", ErrCASAcceptanceRecovered, candidateCommit, updateErr)
 		}
 		if recovered.Head == expectedHead {
 			// The exact ref is still H0, so this invocation did not accept H1.
