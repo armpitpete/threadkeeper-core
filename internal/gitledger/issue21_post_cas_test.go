@@ -22,7 +22,7 @@ func TestIssue21CompareAndSwapRecoversAfterCallerCancellationPostUpdateRef(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	gitDir, r, head := issue21CASReader(t, realGit)
+	_, r, head := issue21CASReader(t, realGit)
 	defer r.Close()
 	candidate, err := r.PrepareEventCommit(context.Background(), head, "events/issue21/event.json", []byte("{}"), "issue21-event")
 	if err != nil {
@@ -58,17 +58,7 @@ exec "$REAL_GIT" "$@"
 		done <- r.CompareAndSwap(ctx, head, candidate.Commit)
 	}()
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if _, err := os.Stat(signalPath); err == nil {
-			break
-		}
-		if time.Now().After(deadline) {
-			cancel()
-			t.Fatal("timed out waiting for real update-ref to complete")
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	waitForIssue21Signal(t, signalPath, cancel)
 	cancel()
 
 	if err := <-done; err != nil {
@@ -81,7 +71,81 @@ exec "$REAL_GIT" "$@"
 	if got != candidate.Commit {
 		t.Fatalf("recovered authoritative head = %s, want accepted candidate %s", got, candidate.Commit)
 	}
-	_ = gitDir
+}
+
+func TestIssue21CancellationAfterH1ThenH2DoesNotMisreportOriginalCASAsStale(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell wrapper is only used by the Linux conformance lane")
+	}
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitDir, r, head := issue21CASReader(t, realGit)
+	defer r.Close()
+	candidate, err := r.PrepareEventCommit(context.Background(), head, "events/issue21/first.json", []byte("{}"), "issue21-first")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Pre-create a later linear descendant. The wrapper will move H1->H2 only
+	// after the real first H0->H1 update-ref succeeds, simulating another valid
+	// writer completing before the cancelled caller's recovery reads the ref.
+	h2 := runIssue21Git(t, realGit, []string{
+		"GIT_AUTHOR_NAME=Threadkeeper Later Writer",
+		"GIT_AUTHOR_EMAIL=later-writer@example.invalid",
+		"GIT_AUTHOR_DATE=2002-02-02T02:02:02Z",
+		"GIT_COMMITTER_NAME=Threadkeeper Later Writer",
+		"GIT_COMMITTER_EMAIL=later-writer@example.invalid",
+		"GIT_COMMITTER_DATE=2002-02-02T02:02:02Z",
+	}, []byte("later authoritative descendant\n"), "--git-dir="+gitDir, "commit-tree", candidate.Tree, "-p", candidate.Commit)
+
+	signalPath := filepath.Join(t.TempDir(), "h2-complete")
+	wrapper := filepath.Join(t.TempDir(), "git-wrapper-descendant.sh")
+	script := fmt.Sprintf(`#!/bin/sh
+REAL_GIT=%s
+GIT_DIR=%s
+REF=%s
+H1=%s
+H2=%s
+SIGNAL=%s
+for arg in "$@"; do
+  if [ "$arg" = "update-ref" ]; then
+    "$REAL_GIT" "$@"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+      "$REAL_GIT" --git-dir="$GIT_DIR" update-ref --no-deref "$REF" "$H2" "$H1" || exit $?
+      : > "$SIGNAL"
+      sleep 30
+    fi
+    exit $rc
+  fi
+done
+exec "$REAL_GIT" "$@"
+`, issue21ShellQuote(realGit), issue21ShellQuote(gitDir), issue21ShellQuote(DefaultRef), issue21ShellQuote(candidate.Commit), issue21ShellQuote(h2), issue21ShellQuote(signalPath))
+	if err := os.WriteFile(wrapper, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.gitPath = wrapper
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- r.CompareAndSwap(ctx, head, candidate.Commit)
+	}()
+
+	waitForIssue21Signal(t, signalPath, cancel)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("H1 was accepted and remains in authoritative history, but operation was misreported: %v", err)
+	}
+	got, err := r.Head(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != h2 {
+		t.Fatalf("recovered head = %s, want later descendant %s", got, h2)
+	}
 }
 
 func TestIssue21SuccessfulCASPostSafetyFailureIsExplicitRecoveryCondition(t *testing.T) {
@@ -139,6 +203,21 @@ exec "$REAL_GIT" "$@"
 	}
 	if got != candidate.Commit {
 		t.Fatalf("post-CAS verification failure hid authoritative move: got %s want %s", got, candidate.Commit)
+	}
+}
+
+func waitForIssue21Signal(t *testing.T, signalPath string, cancel context.CancelFunc) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(signalPath); err == nil {
+			return
+		}
+		if time.Now().After(deadline) {
+			cancel()
+			t.Fatal("timed out waiting for post-update-ref signal")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
