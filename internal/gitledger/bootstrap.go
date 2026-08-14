@@ -29,8 +29,8 @@ func InitializeBareRoot(ctx context.Context, gitDir, ref string, rootFiles map[s
 	if ref == "" {
 		ref = DefaultRef
 	}
-	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, "\x00\r\n") {
-		return "", fmt.Errorf("invalid authoritative ref %q", ref)
+	if err := validateBootstrapRef(ref); err != nil {
+		return "", err
 	}
 	if len(rootFiles) == 0 {
 		return "", fmt.Errorf("FRESH_GENESIS_INVALID: root file set is empty")
@@ -66,6 +66,15 @@ func InitializeBareRoot(ctx context.Context, gitDir, ref string, rootFiles map[s
 		return "", fmt.Errorf("FRESH_GENESIS_INVALID: target parent changed canonical identity: got %s want %s", canonicalParent, parent)
 	}
 
+	// Git normally copies files from a configured/compiled-in template directory
+	// during init. Genesis bootstrap must not import ambient hooks or other files,
+	// so provide an explicit empty template before the target exists.
+	templateDir, err := os.MkdirTemp("", "threadkeeper-genesis-template-*")
+	if err != nil {
+		return "", fmt.Errorf("create empty Genesis Git template: %w", err)
+	}
+	defer os.RemoveAll(templateDir)
+
 	if err := os.Mkdir(abs, 0o700); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return "", fmt.Errorf("%w: target %q already exists", ErrLedgerAlreadyExists, abs)
@@ -73,7 +82,7 @@ func InitializeBareRoot(ctx context.Context, gitDir, ref string, rootFiles map[s
 		return "", fmt.Errorf("create fresh ledger root %q: %w", abs, err)
 	}
 
-	if _, err := runBootstrapGit(ctx, gitPath, nil, nil, "init", "--bare", "--initial-branch=main", "--object-format=sha1", abs); err != nil {
+	if _, err := runBootstrapGit(ctx, gitPath, nil, nil, "init", "--bare", "--initial-branch=main", "--object-format=sha1", "--template="+templateDir, abs); err != nil {
 		return "", fmt.Errorf("initialize fresh bare ledger: %w", err)
 	}
 
@@ -153,6 +162,18 @@ func InitializeBareRoot(ctx context.Context, gitDir, ref string, rootFiles map[s
 		return "", fmt.Errorf("FRESH_GENESIS_INTEGRITY_FAILURE: authoritative head %s differs from created root %s", head, commit)
 	}
 	return commit, nil
+}
+
+func validateBootstrapRef(ref string) error {
+	if !strings.HasPrefix(ref, "refs/") || path.Clean(ref) != ref || strings.Contains(ref, "\\") || strings.ContainsAny(ref, "\x00\r\n") {
+		return fmt.Errorf("FRESH_GENESIS_INVALID: invalid authoritative ref %q", ref)
+	}
+	for _, part := range strings.Split(ref, "/") {
+		if part == "" || part == "." || part == ".." {
+			return fmt.Errorf("FRESH_GENESIS_INVALID: invalid authoritative ref %q", ref)
+		}
+	}
+	return nil
 }
 
 func validateBootstrapPath(p string) error {
