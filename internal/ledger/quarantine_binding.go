@@ -1,6 +1,7 @@
 package ledger
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -18,9 +19,16 @@ func rawQuarantineIdentity(raw []byte) (string, int64) {
 	return hex.EncodeToString(sum[:]), int64(len(raw))
 }
 
-func quarantineStageID(raw []byte) string {
-	rawSHA, _ := rawQuarantineIdentity(raw)
-	return quarantineStagePrefix + rawSHA
+// newQuarantineStageID gives each Prepare invocation exclusive cleanup
+// ownership of its temporary staging file. Staging identities are deliberately
+// not content-derived: identical concurrent prepares must not be able to remove
+// one another's in-flight staging material.
+func newQuarantineStageID() (string, error) {
+	var nonce [16]byte
+	if _, err := rand.Read(nonce[:]); err != nil {
+		return "", fmt.Errorf("QUARANTINE_INVALID: generate staging identity: %w", err)
+	}
+	return quarantineStagePrefix + hex.EncodeToString(nonce[:]), nil
 }
 
 // candidateQuarantineBindingID binds the private quarantine capability to the
