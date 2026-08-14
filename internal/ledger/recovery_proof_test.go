@@ -32,6 +32,9 @@ func TestRecoveryProofSurvivesDestructiveBareRestore(t *testing.T) {
 	if original.EventCount == 0 || original.GovernedRecordCount == 0 {
 		t.Fatalf("recovery fixture is not substantive: %#v", original)
 	}
+	if original.ActorPolicyVersion == "" || original.ActorPolicyRootContentSHA256 == "" {
+		t.Fatalf("recovery proof omits actor-policy identity: %#v", original)
+	}
 
 	backupRoot := t.TempDir()
 	backup := filepath.Join(backupRoot, "secondary-ledger.git")
