@@ -264,7 +264,7 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 		"schema_version":                       "threadkeeper.core-v1-e2e-acceptance.v1",
 		"genesis_commit":                       genesisEvidence.GenesisCommit,
 		"genesis_content_sha256":               genesisEvidence.GenesisContentSHA256,
-		"actor_policy_version":                 policySnapshot.Policy.Version,
+		"actor_policy_version":                 policySnapshot.PolicyVersion,
 		"actor_policy_root_content_sha256":     genesisEvidence.ActorPolicyContentSHA256,
 		"actor_policy_current_content_sha256":  restartedPolicy.PolicyContentSHA,
 		"authenticated_actor_id":               principal.ActorID,
