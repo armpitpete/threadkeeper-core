@@ -24,11 +24,11 @@ type ReplayEntry struct {
 	Sequence       int    `json:"sequence"`
 	AcceptedCommit string `json:"accepted_commit"`
 	Path           string `json:"path"`
-	EventID        string `json:"event_id"`
-	EventType      string `json:"event_type"`
-	SchemaVersion  string `json:"schema_version"`
-	ContentSHA256  string `json:"content_sha256"`
-	TargetCount    int    `json:"target_count"`
+	EventID         string `json:"event_id"`
+	EventType       string `json:"event_type"`
+	SchemaVersion   string `json:"schema_version"`
+	ContentSHA256   string `json:"content_sha256"`
+	TargetCount     int    `json:"target_count"`
 }
 
 type ReplayManifest struct {
@@ -208,6 +208,13 @@ func validateGenesisHistory(ctx context.Context, r *gitledger.Reader, history []
 	}
 	if len(changes) != 1 || changes[0] != genesis.LedgerPath {
 		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root commit %s must add exactly %q, got %v", rootCommit, genesis.LedgerPath, changes)
+	}
+	rootEvents, err := r.EventAdditions(ctx, rootCommit)
+	if err != nil {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: inspect root events: %w", err)
+	}
+	if len(rootEvents) != 0 {
+		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: root commit must not contain durable events")
 	}
 	raw, err := r.ReadRegularFile(ctx, rootCommit, genesis.LedgerPath)
 	if err != nil {
