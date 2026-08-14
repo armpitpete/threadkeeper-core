@@ -13,6 +13,7 @@ Implemented and exercised by conformance tests:
 - Git ledger replay with event/schema/policy validation;
 - exclusive governed-record reducer and accepted reducer bindings;
 - internal candidate-write construction, exact-head Git compare-and-swap, durable idempotency and post-CAS replay verification;
+- candidate quarantine integrated into preparation and acceptance: pinned private store, exact-byte binding, raw digest/size verification, 24-hour retention, acceptance cleanup and crash/retry cleanup;
 - adversarial repository-isolation regressions for alternates, `commondir`, partial clones/lazy fetch, symlinked authority stores, reftable/worktree config, hostile Git environments and non-regular JSON tree modes;
 - explicit known-safe Git subprocess environment, including Windows case-insensitive environment isolation;
 - concurrent replay/write/idempotency/cancellation safety tests and explicit overload signalling;
@@ -23,7 +24,8 @@ Implemented and exercised by conformance tests:
 
 ## Installed assurance/read capabilities
 
-- genesis trust-root validation plus legacy adoption contract;
+- genesis trust-root validation plus legacy-adoption validation contract;
+- owner-selected fresh-Genesis deployment path: no legacy governance ledger/head will be fabricated;
 - explicit threat model and single-authority-effect rule;
 - content-addressed source escrow store plus preservation modes;
 - exact-version filesystem source adapter with digest and symlink/traversal protection;
@@ -36,37 +38,45 @@ Implemented and exercised by conformance tests:
 - confidentiality clearance and governed redaction tombstones;
 - proposal/review bundle with alternatives, dissent and reopening conditions and zero authority effect;
 - deterministic policy-impact simulation comparison;
-- deterministic recovery-fork classification;
+- deterministic recovery-fork classification plus explicit operator-resolution candidate workflow that preserves rejected history;
 - destructive non-empty bare-ledger backup/restore proof comparing exact head, replay and projection digests;
-- private candidate quarantine storage primitive;
 - verified derived replay checkpoint digests;
 - Ed25519 external witness signing/verification;
 - federated exact references with mandatory local authority disposition;
 - deterministic portable Core export/import with canonical round-trip validation;
-- Core build-provenance model; CI artifact/SBOM packaging remains pending because the current repository automation boundary did not permit workflow mutation in this integration lane;
+- Core build-provenance model; CI artifact/SBOM packaging remains pending because the current repository automation boundary did not permit workflow mutation in that lane;
 - five-domain health model, incident lifecycle and key lifecycle;
 - read-only reference CLI for genesis, evidence, review bundles, health and recovery proof/compare.
 
+## Release governance already established
+
+- repository `main` is protected by an active repository ruleset;
+- deletion and non-fast-forward/force-push updates are blocked;
+- pull requests are required;
+- review conversations must be resolved;
+- `test` and `windows-git-environment-isolation` are required status checks;
+- required checks are strict against current `main`.
+
 ## Integration and protected work
 
-- PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b`; an independent full Issue #9 PASS was **not** recorded before that merge. The exception is explicit and does not enable public authority writes;
-- PR #12 assurance expansion is integrated on `main`;
-- the Genesis legacy-adoption validator is integrated, but actual Genesis adoption remains blocked until the real legacy governance ledger and exact pre-adoption head are identified;
-- before any public authority writer is enabled, the merged CAS boundary still requires fresh independent hostile review;
-- no public authority-write transport is enabled; actor authentication/authorisation is installed only as a fail-closed admission prerequisite;
-- quarantine is not yet wired into Git candidate materialisation because that would change the CAS boundary and requires a separate review;
+- PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b`; an independent full Issue #9 PASS was **not** recorded before that merge. The exception remains explicit and does not enable public authority writes;
+- the fresh-Genesis path is selected and recorded, but the production governance ledger and its first authoritative Genesis record do not exist yet; that is a deployment-evidence gate;
+- this quarantine integration changes the candidate/CAS boundary, so the resulting exact merged boundary still requires fresh independent hostile review before any public authority writer may be enabled;
+- no public authority-write transport is enabled; actor authentication/authorisation remains a fail-closed admission prerequisite only;
+- service-owned/non-writable-by-untrusted-users production ledger and quarantine filesystem ownership still require deployment proof;
+- the final declared load/resource envelope still requires bounded memory/file-descriptor and overload/backpressure evidence;
+- restore from an independently operated secondary backup location remains a deployment/recovery gate;
 - broad existing durable event/config schemas have not yet been migrated to require temporal/coverage/confidentiality fields universally;
 - checkpoint-accelerated replay has not replaced full replay; checkpoint build/verification is installed as an optimisation boundary only;
 - external witness deployment/key service is optional and not configured;
-- recovery-fork operator resolution and restore from an independently operated secondary backup location remain deployment gates;
 - federation transport is not configured;
 - Recall/search/vector storage remains deliberately separate and unimplemented;
-- repository `main` protection and required conformance checks remain a release-governance gate until proven enabled.
+- full fresh-install → Genesis → authenticate → write → restart → retry → conflict → restore → replay release acceptance remains outstanding.
 
-See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the exact sequence.
+See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the release-critical sequence.
 
 ## Write status
 
 `AUTHORITY_WRITES_DISABLED`
 
-This remains true until the Genesis evidence boundary, deployment ownership, quarantine integration, fresh CAS review, load safety, independent recovery proof and release-governance gates are separately accepted.
+This remains true until production Genesis instantiation, deployment ownership, fresh hostile review of the final quarantine/CAS boundary, final load/resource proof, independent secondary restore proof and end-to-end release acceptance are separately satisfied.
