@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -47,6 +48,21 @@ func TestDecodeEnvelopeRejectsUnknownDuplicateAndTrailingInput(t *testing.T) {
 	}
 }
 
+func TestEvaluateRejectsRequiredOpenHandleMetricGap(t *testing.T) {
+	envelope := ReferenceEnvelope()
+	evidence := Evidence{
+		Envelope:                           envelope,
+		ResourceSamples:                    4,
+		OpenHandleMetricUnavailableSamples: 1,
+		Before:                             Snapshot{OpenHandlesAvailable: true},
+		Peak:                               Snapshot{OpenHandlesAvailable: true},
+		AfterSettled:                       Snapshot{OpenHandlesAvailable: true},
+	}
+	if err := evaluate(evidence); err == nil || !strings.Contains(err.Error(), "LOAD_RESOURCE_METRIC_UNAVAILABLE") {
+		t.Fatalf("required sampled metric gap was accepted: %v", err)
+	}
+}
+
 func TestReferenceEnvelopeMeasuresSimpleWorkload(t *testing.T) {
 	if runtime.GOOS != "linux" && runtime.GOOS != "windows" {
 		t.Skip("reference envelope requires a process open-handle metric")
@@ -61,6 +77,12 @@ func TestReferenceEnvelopeMeasuresSimpleWorkload(t *testing.T) {
 	}
 	if evidence.SampleIntervalMillis != 5 {
 		t.Fatalf("sample interval = %d ms want 5", evidence.SampleIntervalMillis)
+	}
+	if evidence.ResourceSamples < 3 {
+		t.Fatalf("resource samples = %d want at least baseline, final monitor and settled samples", evidence.ResourceSamples)
+	}
+	if evidence.OpenHandleMetricUnavailableSamples != 0 {
+		t.Fatalf("required open-handle metric had %d unavailable samples", evidence.OpenHandleMetricUnavailableSamples)
 	}
 	want := envelope.ConcurrentWorkers * envelope.IterationsPerWorker
 	if evidence.CompletedOperations != want {
