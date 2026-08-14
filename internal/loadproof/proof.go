@@ -152,16 +152,17 @@ type Growth struct {
 }
 
 type Evidence struct {
-	Envelope                 Envelope `json:"envelope"`
-	SampleIntervalMillis     int64    `json:"sample_interval_millis"`
-	OpenHandleMetricComplete bool     `json:"open_handle_metric_complete"`
-	Before                   Snapshot `json:"before"`
-	Peak                     Snapshot `json:"peak"`
-	AfterSettled             Snapshot `json:"after_settled"`
-	PeakGrowth               Growth   `json:"peak_growth"`
-	SettledGrowth            Growth   `json:"settled_growth"`
-	CompletedOperations      int      `json:"completed_operations"`
-	Passed                   bool     `json:"passed"`
+	Envelope                           Envelope `json:"envelope"`
+	SampleIntervalMillis               int64    `json:"sample_interval_millis"`
+	ResourceSamples                    int      `json:"resource_samples"`
+	OpenHandleMetricUnavailableSamples int      `json:"open_handle_metric_unavailable_samples"`
+	Before                             Snapshot `json:"before"`
+	Peak                               Snapshot `json:"peak"`
+	AfterSettled                       Snapshot `json:"after_settled"`
+	PeakGrowth                         Growth   `json:"peak_growth"`
+	SettledGrowth                      Growth   `json:"settled_growth"`
+	CompletedOperations                int      `json:"completed_operations"`
+	Passed                             bool     `json:"passed"`
 }
 
 type Workload func(context.Context, int, int) error
@@ -179,29 +180,43 @@ func Run(ctx context.Context, envelope Envelope, workload Workload) (Evidence, e
 	}
 
 	before := settledSnapshot()
-	if envelope.RequireOpenHandleMetric && !before.OpenHandlesAvailable {
-		return Evidence{}, fmt.Errorf("LOAD_RESOURCE_METRIC_UNAVAILABLE: open handle metric is required")
+	unavailable := 0
+	if !before.OpenHandlesAvailable {
+		unavailable = 1
+	}
+	if envelope.RequireOpenHandleMetric && unavailable != 0 {
+		return Evidence{
+			Envelope:                           envelope,
+			SampleIntervalMillis:               sampleInterval.Milliseconds(),
+			ResourceSamples:                    1,
+			OpenHandleMetricUnavailableSamples: unavailable,
+			Before:                             before,
+			Peak:                               before,
+			AfterSettled:                       before,
+		}, fmt.Errorf("LOAD_RESOURCE_METRIC_UNAVAILABLE: open handle metric is required")
 	}
 	peak := before
-	metricComplete := before.OpenHandlesAvailable
+	resourceSamples := 1
 	var peakMu sync.Mutex
 	updatePeak := func(s Snapshot) {
 		peakMu.Lock()
 		defer peakMu.Unlock()
+		resourceSamples++
+		if !s.OpenHandlesAvailable {
+			unavailable++
+		}
 		if s.HeapAllocBytes > peak.HeapAllocBytes {
 			peak.HeapAllocBytes = s.HeapAllocBytes
 		}
 		if s.Goroutines > peak.Goroutines {
 			peak.Goroutines = s.Goroutines
 		}
-		if !s.OpenHandlesAvailable {
-			metricComplete = false
-			return
+		if s.OpenHandlesAvailable {
+			if !peak.OpenHandlesAvailable || s.OpenHandles > peak.OpenHandles {
+				peak.OpenHandles = s.OpenHandles
+			}
+			peak.OpenHandlesAvailable = true
 		}
-		if !peak.OpenHandlesAvailable || s.OpenHandles > peak.OpenHandles {
-			peak.OpenHandles = s.OpenHandles
-		}
-		peak.OpenHandlesAvailable = true
 	}
 
 	monitorDone := make(chan struct{})
@@ -262,19 +277,21 @@ func Run(ctx context.Context, envelope Envelope, workload Workload) (Evidence, e
 	updatePeak(after)
 	peakMu.Lock()
 	finalPeak := peak
-	finalMetricComplete := metricComplete
+	finalResourceSamples := resourceSamples
+	finalUnavailable := unavailable
 	peakMu.Unlock()
 
 	evidence := Evidence{
-		Envelope:                 envelope,
-		SampleIntervalMillis:     sampleInterval.Milliseconds(),
-		OpenHandleMetricComplete: finalMetricComplete,
-		Before:                   before,
-		Peak:                     finalPeak,
-		AfterSettled:             after,
-		PeakGrowth:               growth(before, finalPeak),
-		SettledGrowth:            growth(before, after),
-		CompletedOperations:      completed,
+		Envelope:                           envelope,
+		SampleIntervalMillis:               sampleInterval.Milliseconds(),
+		ResourceSamples:                    finalResourceSamples,
+		OpenHandleMetricUnavailableSamples: finalUnavailable,
+		Before:                             before,
+		Peak:                               finalPeak,
+		AfterSettled:                       after,
+		PeakGrowth:                         growth(before, finalPeak),
+		SettledGrowth:                      growth(before, after),
+		CompletedOperations:                completed,
 	}
 	if firstErr != nil {
 		return evidence, fmt.Errorf("LOAD_RESOURCE_WORKLOAD_FAILED: %w", firstErr)
@@ -332,8 +349,8 @@ func signedDelta(before, after uint64) int64 {
 }
 
 func evaluate(e Evidence) error {
-	if e.Envelope.RequireOpenHandleMetric && !e.OpenHandleMetricComplete {
-		return fmt.Errorf("LOAD_RESOURCE_METRIC_UNAVAILABLE: required open-handle metric was unavailable during measurement")
+	if e.Envelope.RequireOpenHandleMetric && e.OpenHandleMetricUnavailableSamples != 0 {
+		return fmt.Errorf("LOAD_RESOURCE_METRIC_UNAVAILABLE: required open-handle metric unavailable in %d of %d samples", e.OpenHandleMetricUnavailableSamples, e.ResourceSamples)
 	}
 	if e.Envelope.RequireOpenHandleMetric && (!e.Before.OpenHandlesAvailable || !e.Peak.OpenHandlesAvailable || !e.AfterSettled.OpenHandlesAvailable) {
 		return fmt.Errorf("LOAD_RESOURCE_METRIC_UNAVAILABLE: open handle metric is incomplete")
