@@ -22,9 +22,9 @@ var (
 )
 
 const (
-	casRecoveryTimeout          = 30 * time.Second
-	casContentionSettleTimeout  = time.Second
-	casContentionRetryInterval  = 10 * time.Millisecond
+	casRecoveryTimeout         = 30 * time.Second
+	casContentionSettleTimeout = time.Second
+	casContentionRetryInterval = 10 * time.Millisecond
 )
 
 type CandidateCommit struct {
@@ -421,6 +421,7 @@ func validateEventPath(p string) error {
 			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.') {
 				return fmt.Errorf("invalid durable event path %q", p)
 			}
+		}
 	}
 	return nil
 }
