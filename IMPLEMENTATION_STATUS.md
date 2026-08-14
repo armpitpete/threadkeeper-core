@@ -13,7 +13,8 @@ Implemented and exercised by conformance tests:
 - Git ledger replay with event/schema/policy validation;
 - exclusive governed-record reducer and accepted reducer bindings;
 - internal candidate-write construction, exact-head Git compare-and-swap, durable idempotency and post-CAS replay verification;
-- candidate quarantine integrated into preparation and acceptance: pinned private store, exact-byte binding, raw digest/size verification, 24-hour retention, acceptance cleanup and crash/retry cleanup;
+- candidate quarantine integrated into preparation and acceptance: pinned private store, exact-byte storage, prepared H0/H1/path capability binding, raw digest/size verification, 24-hour retention, acceptance cleanup and crash/retry cleanup;
+- caller-independent bounded recovery once `update-ref` may have changed authority, with explicit post-CAS verification/unknown-outcome classifications;
 - adversarial repository-isolation regressions for alternates, `commondir`, partial clones/lazy fetch, symlinked authority stores, reftable/worktree config, hostile Git environments and non-regular JSON tree modes;
 - explicit known-safe Git subprocess environment, including Windows case-insensitive environment isolation;
 - concurrent replay/write/idempotency/cancellation safety tests and explicit overload signalling;
@@ -61,7 +62,8 @@ Implemented and exercised by conformance tests:
 
 - PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b`; an independent full Issue #9 PASS was **not** recorded before that merge. The exception remains explicit and does not enable public authority writes;
 - the fresh-Genesis path is selected and recorded, but the production governance ledger and its first authoritative Genesis record do not exist yet; that is a deployment-evidence gate;
-- this quarantine integration changes the candidate/CAS boundary, so the resulting exact merged boundary still requires fresh independent hostile review before any public authority writer may be enabled;
+- independent hostile review Issue #21 **FAILED** exact merged commit `747f30b4e2af0109f592220aa03b43e1ca1f0543` on two gate-blocking defects: quarantine did not bind the exact prepared commit/path, and caller cancellation after successful CAS could be reported as an ordinary failed write;
+- the current repair binds quarantine to the exact prepared H0/H1/path identity and makes post-CAS recovery caller-independent. Because that repair changes the reviewed boundary, its final exact merged commit requires a completely fresh independent hostile review; CI/self-review cannot convert the prior FAIL into PASS;
 - no public authority-write transport is enabled; actor authentication/authorisation remains a fail-closed admission prerequisite only;
 - service-owned/non-writable-by-untrusted-users production ledger and quarantine filesystem ownership still require deployment proof;
 - the final declared load/resource envelope still requires bounded memory/file-descriptor and overload/backpressure evidence;
@@ -79,4 +81,4 @@ See `docs/assurance/REMAINING_PROTECTED_GATES.md` for the release-critical seque
 
 `AUTHORITY_WRITES_DISABLED`
 
-This remains true until production Genesis instantiation, deployment ownership, fresh hostile review of the final quarantine/CAS boundary, final load/resource proof, independent secondary restore proof and end-to-end release acceptance are separately satisfied.
+This remains true until production Genesis instantiation, deployment ownership, a fresh independent PASS on the final repaired quarantine/CAS boundary, final load/resource proof, independent secondary restore proof and end-to-end release acceptance are separately satisfied.

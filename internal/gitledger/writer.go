@@ -10,12 +10,18 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 var (
-	ErrStaleState        = errors.New("STALE_STATE")
-	ErrCandidateNotChild = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrStaleState            = errors.New("STALE_STATE")
+	ErrCandidateNotChild     = errors.New("CANDIDATE_NOT_EXACT_CHILD")
+	ErrCASOutcomeUnknown     = errors.New("POST_CAS_RECOVERY_REQUIRED")
+	ErrPostCASVerification   = errors.New("POST_CAS_VERIFICATION_FAILED")
+	ErrCASAcceptanceRecovered = fmt.Errorf("%w: CAS_ACCEPTANCE_RECOVERED", ErrStaleState)
 )
+
+const casRecoveryTimeout = 30 * time.Second
 
 type CandidateCommit struct {
 	ExpectedHead string
@@ -23,6 +29,11 @@ type CandidateCommit struct {
 	Tree         string
 	EventPath    string
 	EventBlob    string
+}
+
+type recoveredCASState struct {
+	Head               string
+	CandidateInHistory bool
 }
 
 // PrepareEventCommit creates Git objects for exactly one new durable event
@@ -145,6 +156,9 @@ func (r *Reader) VerifyEventCandidate(ctx context.Context, expectedHead, candida
 // CompareAndSwap advances the authoritative ref only if it still equals the
 // expected head. A candidate must be the exact single-parent child of that
 // head. Repository hooks are bypassed so they cannot become hidden authority.
+//
+// Once update-ref is invoked, outcome recovery no longer depends on the caller
+// context: that context may be cancelled after Git has already moved authority.
 func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateCommit string) error {
 	if !isObjectID(expectedHead) || !isObjectID(candidateCommit) {
 		return fmt.Errorf("invalid compare-and-swap object id")
@@ -181,24 +195,74 @@ func (r *Reader) CompareAndSwap(ctx context.Context, expectedHead, candidateComm
 	// symbolic ref introduced by a filesystem race therefore cannot redirect
 	// mutation to its target; static symbolic refs are rejected before this
 	// point by checkAuthoritativeRefSafety.
-	if _, err := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead); err != nil {
-		now, headErr := r.Head(ctx)
-		if headErr == nil && now != expectedHead {
-			return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, now)
+	_, updateErr := r.runWrite(ctx, nil, nil, hooksDir, "update-ref", "--no-deref", r.ref, candidateCommit, expectedHead)
+
+	// From this point onward the caller context is not evidence about whether
+	// authority moved. Resolve the authoritative ref and, when it has advanced
+	// beyond H1, inspect the recovered linear history using a fresh bounded
+	// context. This distinguishes "another writer won H0" from "our H1 was
+	// accepted and a later valid writer already advanced to H2".
+	recovered, recoveryErr := r.recoverStateAfterCAS(candidateCommit)
+	if updateErr != nil {
+		if recoveryErr != nil {
+			return fmt.Errorf("%w: update-ref returned %v; authoritative-state recovery failed: %v", ErrCASOutcomeUnknown, updateErr, recoveryErr)
 		}
-		return err
+		if recovered.CandidateInHistory {
+			// H1 is durably authoritative or in the current authoritative history,
+			// but because update-ref itself returned an error this invocation cannot
+			// prove whether it performed the transition or an identical concurrent
+			// writer did. Return an explicit recovered-acceptance condition which
+			// also unwraps to STALE_STATE so the ledger layer reconstructs the
+			// durable idempotent result as already_accepted.
+			return fmt.Errorf("%w: candidate %s is present in recovered authoritative history after update-ref error: %v", ErrCASAcceptanceRecovered, candidateCommit, updateErr)
+		}
+		if recovered.Head == expectedHead {
+			// The exact ref is still H0, so this invocation did not accept H1.
+			return updateErr
+		}
+		// Another exact-head writer won H0 and H1 is absent from the resulting
+		// authoritative history.
+		return fmt.Errorf("%w: expected %s current %s", ErrStaleState, expectedHead, recovered.Head)
 	}
+
+	// A successful update-ref means H1 was authoritative at the atomic update.
+	// A current descendant containing H1 is also a verified acceptance. Any
+	// inability to prove H1 in the recovered authority history is an explicit
+	// post-CAS recovery condition, never an ordinary write failure.
+	if recoveryErr != nil {
+		return fmt.Errorf("%w: update-ref accepted %s but verification failed: %v", ErrPostCASVerification, candidateCommit, recoveryErr)
+	}
+	if !recovered.CandidateInHistory {
+		return fmt.Errorf("%w: update-ref accepted %s but recovered head %s does not contain it", ErrPostCASVerification, candidateCommit, recovered.Head)
+	}
+	return nil
+}
+
+func (r *Reader) recoverStateAfterCAS(candidateCommit string) (recoveredCASState, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), casRecoveryTimeout)
+	defer cancel()
 	if err := r.CheckHistorySafety(ctx); err != nil {
-		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: repository safety check: %w", err)
+		return recoveredCASState{}, fmt.Errorf("repository safety check: %w", err)
 	}
 	got, err := r.Head(ctx)
 	if err != nil {
-		return err
+		return recoveredCASState{}, err
 	}
-	if got != candidateCommit {
-		return fmt.Errorf("POST_CAS_VERIFICATION_FAILED: ref resolved to %s want %s", got, candidateCommit)
+	state := recoveredCASState{Head: got, CandidateInHistory: got == candidateCommit}
+	if state.CandidateInHistory {
+		return state, nil
 	}
-	return nil
+	history, err := r.History(ctx, got)
+	if err != nil {
+		return recoveredCASState{}, err
+	}
+	for _, commit := range history {
+		if commit.ID == candidateCommit {
+			state.CandidateInHistory = true
+			break
+		}
+	}
+	return state, nil
 }
 
 func (r *Reader) verifyExactChild(ctx context.Context, expectedHead, candidateCommit string) error {
