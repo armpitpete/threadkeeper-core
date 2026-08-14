@@ -112,3 +112,85 @@ func TestIssue25WinnerCleanupRecoversConcurrentExactRequest(t *testing.T) {
 		t.Fatalf("restart retry accepted commit = %s want %s", retry.AcceptedCommit, candidate.CandidateCommit)
 	}
 }
+
+func TestIssue25PrepareRacingAcceptanceReconcilesAlreadyAccepted(t *testing.T) {
+	r, head := candidateTestReader(t)
+	defer r.Close()
+
+	event := makeCreateCandidateEvent(t, head, "issue25-prepare-race", "idem-issue25-prepare-race", json.RawMessage(`{"enabled":true}`))
+	req := CandidateRequest{
+		ExpectedHead: head,
+		EventPath:    "events/governance/issue25-prepare-race.json",
+		Event:        event,
+	}
+	winnerCandidate, response, err := PrepareWriteCandidate(context.Background(), r, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if winnerCandidate == nil || response != nil {
+		t.Fatalf("unexpected initial prepare candidate=%#v response=%#v", winnerCandidate, response)
+	}
+
+	qPath := filepath.Join(r.CandidateQuarantineDir(), winnerCandidate.Quarantine.ID+".candidate")
+	if _, err := os.Stat(qPath); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeFinalCheck := make(chan struct{})
+	releaseFinalCheck := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releaseFinalCheck) })
+
+	type prepareResult struct {
+		candidate *WriteCandidate
+		response  *WriteResponse
+		err       error
+	}
+	prepareDone := make(chan prepareResult, 1)
+	go func() {
+		candidate, response, err := prepareWriteCandidate(context.Background(), r, req, &prepareWriteHooks{
+			beforeFinalSnapshotCheck: func() {
+				close(beforeFinalCheck)
+				<-releaseFinalCheck
+			},
+		})
+		prepareDone <- prepareResult{candidate: candidate, response: response, err: err}
+	}()
+
+	// The racing Prepare has captured H0, built the exact H1 candidate and
+	// materialised its bound quarantine entry, but has not yet checked whether
+	// H0 is still authoritative.
+	<-beforeFinalCheck
+
+	accepted, err := AcceptWriteCandidate(context.Background(), r, *winnerCandidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted == nil || accepted.Status != WriteStatusAccepted {
+		t.Fatalf("winner response = %#v, want accepted", accepted)
+	}
+	if accepted.AcceptedCommit != winnerCandidate.CandidateCommit {
+		t.Fatalf("winner accepted commit = %s want %s", accepted.AcceptedCommit, winnerCandidate.CandidateCommit)
+	}
+	if _, err := os.Stat(qPath); !os.IsNotExist(err) {
+		t.Fatalf("winner did not remove bound quarantine entry: %v", err)
+	}
+
+	releaseOnce.Do(func() { close(releaseFinalCheck) })
+	prepared := <-prepareDone
+	if prepared.err != nil {
+		t.Fatalf("racing Prepare failed instead of recovering durable acceptance: %v", prepared.err)
+	}
+	if prepared.candidate != nil {
+		t.Fatalf("racing Prepare returned stale candidate %#v", prepared.candidate)
+	}
+	if prepared.response == nil || prepared.response.Status != WriteStatusAlreadyAccepted {
+		t.Fatalf("racing Prepare response = %#v, want already_accepted", prepared.response)
+	}
+	if prepared.response.AcceptedCommit != winnerCandidate.CandidateCommit {
+		t.Fatalf("racing Prepare accepted commit = %s want %s", prepared.response.AcceptedCommit, winnerCandidate.CandidateCommit)
+	}
+	if _, err := os.Stat(qPath); !os.IsNotExist(err) {
+		t.Fatalf("racing Prepare resurrected or retained accepted quarantine entry: %v", err)
+	}
+}
