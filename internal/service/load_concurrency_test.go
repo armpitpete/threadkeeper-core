@@ -14,7 +14,10 @@ import (
 func TestLimiterNeverAdmitsBeyondCapacityUnderBurst(t *testing.T) {
 	const capacity = 8
 	const requests = 64
-	limiter := NewLimiter(capacity)
+	limiter, err := NewLimiter(capacity)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	start := make(chan struct{})
 	release := make(chan struct{})
