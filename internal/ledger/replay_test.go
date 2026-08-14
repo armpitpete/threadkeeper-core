@@ -63,6 +63,9 @@ func TestReplayValidBareLedgerDeterministically(t *testing.T) {
 	if first.GenesisCommit == "" || first.GenesisRoot.ProjectID != "project:test" || first.GenesisRoot.LedgerID != "ledger:test" {
 		t.Fatalf("replay did not expose test Genesis identity: %#v", first.GenesisRoot)
 	}
+	if first.ActorPolicyVersion != testPolicyV1 || first.ActorPolicyRootContentSHA256 == "" {
+		t.Fatalf("replay did not expose root actor-policy identity: %#v", first)
+	}
 	if first.EventCount != 2 || len(first.Events) != 2 {
 		t.Fatalf("event count = %d, want 2", first.EventCount)
 	}
@@ -204,7 +207,7 @@ func writeTestGenesis(t *testing.T, work string, initialSchemas []string) []byte
 	return completed
 }
 
-func writeTestActorPolicy(t *testing.T, work string) []byte {
+func makeTestActorPolicy(t *testing.T, ledgerID, policyVersion string) []byte {
 	t.Helper()
 	seed := make([]byte, ed25519.SeedSize)
 	for i := range seed {
@@ -213,6 +216,8 @@ func writeTestActorPolicy(t *testing.T, work string) []byte {
 	privateKey := ed25519.NewKeyFromSeed(seed)
 	publicKey := privateKey.Public().(ed25519.PublicKey)
 	raw, err := json.Marshal(map[string]any{
+		"ledger_id":                 ledgerID,
+		"authority_policy_version": policyVersion,
 		"max_proof_lifetime_seconds": int64(300),
 		"keys": []map[string]any{{
 			"actor_id":   "owner:test",
@@ -233,6 +238,12 @@ func writeTestActorPolicy(t *testing.T, work string) []byte {
 	if err != nil {
 		t.Fatal(err)
 	}
+	return completed
+}
+
+func writeTestActorPolicy(t *testing.T, work string) []byte {
+	t.Helper()
+	completed := makeTestActorPolicy(t, "ledger:test", testPolicyV1)
 	path := filepath.Join(work, filepath.FromSlash(actorauth.LedgerPolicyPath))
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
