@@ -36,9 +36,12 @@ type PolicyGrantDocument struct {
 	Target  string `json:"target"`
 }
 
+// PolicyDocument is the authoritative policy value. Ledger and policy-version
+// identity are deliberately not duplicated here: they are supplied by the
+// immutable Genesis root and accepted reducer binding. That prevents a mutable
+// policy value from claiming a different trust domain while retaining the same
+// governed-record target.
 type PolicyDocument struct {
-	PolicyID                string                `json:"policy_id"`
-	LedgerID                string                `json:"ledger_id"`
 	MaxProofLifetimeSeconds int64                 `json:"max_proof_lifetime_seconds"`
 	Keys                    []PolicyKeyDocument   `json:"keys"`
 	Grants                  []PolicyGrantDocument `json:"grants"`
@@ -47,10 +50,12 @@ type PolicyDocument struct {
 
 // ParsePolicyDocument validates a canonical, digest-bound authoritative actor
 // policy and converts it to the exact in-memory structure consumed by proof
-// verification. expectedLedgerID and expectedPolicyID bind the document to the
-// ledger trust domain; callers may pass an empty expected value only for generic
-// standalone validation.
-func ParsePolicyDocument(raw []byte, expectedLedgerID, expectedPolicyID string) (PolicyDocument, Policy, error) {
+// verification. ledgerID is supplied by the authoritative Genesis snapshot and
+// is copied into every exact grant; it is never trusted from the policy value.
+func ParsePolicyDocument(raw []byte, ledgerID string) (PolicyDocument, Policy, error) {
+	if ledgerID == "" {
+		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: authoritative ledger_id is required")
+	}
 	if err := strictjson.Validate(raw); err != nil {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: %w", err)
 	}
@@ -69,15 +74,6 @@ func ParsePolicyDocument(raw []byte, expectedLedgerID, expectedPolicyID string) 
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&doc); err != nil {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: decode: %w", err)
-	}
-	if doc.PolicyID == "" || doc.LedgerID == "" {
-		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: policy_id and ledger_id are required")
-	}
-	if expectedLedgerID != "" && doc.LedgerID != expectedLedgerID {
-		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: ledger_id %q does not match authoritative ledger %q", doc.LedgerID, expectedLedgerID)
-	}
-	if expectedPolicyID != "" && doc.PolicyID != expectedPolicyID {
-		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: policy_id %q does not match Genesis policy %q", doc.PolicyID, expectedPolicyID)
 	}
 	if doc.MaxProofLifetimeSeconds <= 0 || doc.MaxProofLifetimeSeconds > math.MaxInt64/int64(time.Second) {
 		return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: max_proof_lifetime_seconds must be positive and representable")
@@ -141,12 +137,20 @@ func ParsePolicyDocument(raw []byte, expectedLedgerID, expectedPolicyID string) 
 		if !activeKeys[grantDoc.ActorID] {
 			return PolicyDocument{}, Policy{}, fmt.Errorf("AUTH_POLICY_INVALID: granted actor %q has no active trusted key", grantDoc.ActorID)
 		}
-		policy.Grants = append(policy.Grants, Grant{ActorID: grantDoc.ActorID, LedgerID: doc.LedgerID, Action: grantDoc.Action, Target: grantDoc.Target})
+		policy.Grants = append(policy.Grants, Grant{ActorID: grantDoc.ActorID, LedgerID: ledgerID, Action: grantDoc.Action, Target: grantDoc.Target})
 	}
 	if err := validatePolicy(policy); err != nil {
 		return PolicyDocument{}, Policy{}, err
 	}
 	return doc, policy, nil
+}
+
+// ValidatePolicyValue performs the same semantic validation used by service
+// admission without assigning authority to a real ledger. It is used by the
+// reducer to reject malformed policy rotations before they can reach CAS.
+func ValidatePolicyValue(raw []byte) error {
+	_, _, err := ParsePolicyDocument(raw, "validation:ledger")
+	return err
 }
 
 // ValidateInitialAuthorities requires Genesis's initial_authorities to describe
