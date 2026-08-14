@@ -28,6 +28,8 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: go test ./...
+      - name: Whole-tree race test
+        run: go test -race ./...
       - name: Build CGO-free skeleton
         env:
           CGO_ENABLED: '0'
