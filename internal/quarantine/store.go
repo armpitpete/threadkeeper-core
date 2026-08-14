@@ -13,6 +13,11 @@ import (
 	"time"
 )
 
+const (
+	ensureSettleTimeout = time.Second
+	ensureRetryInterval = 5 * time.Millisecond
+)
+
 type Store struct {
 	dir  string
 	root *os.Root
@@ -138,7 +143,10 @@ func (s *Store) Put(id string, content []byte) (Entry, error) {
 }
 
 // Ensure is idempotent for identical candidate bytes. Reusing a candidate
-// identity for different bytes fails closed.
+// identity for different bytes fails closed. A concurrent identical creator may
+// have made the final filename visible before its write/fsync/close completes;
+// in that narrow case Ensure waits for the file to settle instead of treating a
+// transient short prefix as conflicting content.
 func (s *Store) Ensure(id string, content []byte) (Entry, error) {
 	entry, err := s.Put(id, content)
 	if err == nil {
@@ -147,14 +155,41 @@ func (s *Store) Ensure(id string, content []byte) (Entry, error) {
 	if !errors.Is(err, fs.ErrExist) {
 		return Entry{}, err
 	}
-	existing, got, readErr := s.ReadID(id)
-	if readErr != nil {
-		return Entry{}, readErr
-	}
-	if !bytes.Equal(got, content) {
+
+	deadline := time.Now().Add(ensureSettleTimeout)
+	expectedSize := int64(len(content))
+	for {
+		existing, got, readErr := s.ReadID(id)
+		if readErr != nil {
+			if errors.Is(readErr, fs.ErrNotExist) && time.Now().Before(deadline) {
+				// The first creator may have failed and removed its incomplete
+				// file after our O_EXCL collision. Retry exclusive creation.
+				entry, putErr := s.Put(id, content)
+				if putErr == nil {
+					return entry, nil
+				}
+				if !errors.Is(putErr, fs.ErrExist) {
+					return Entry{}, putErr
+				}
+				time.Sleep(ensureRetryInterval)
+				continue
+			}
+			return Entry{}, readErr
+		}
+		if bytes.Equal(got, content) {
+			return existing, nil
+		}
+
+		// A file shorter than the expected content can only be treated as an
+		// in-progress identical creation while the bytes already present equal
+		// the exact expected prefix. Complete or divergent content is a genuine
+		// conflict and fails immediately.
+		if existing.Size < expectedSize && int64(len(got)) == existing.Size && bytes.Equal(got, content[:len(got)]) && time.Now().Before(deadline) {
+			time.Sleep(ensureRetryInterval)
+			continue
+		}
 		return Entry{}, fmt.Errorf("QUARANTINE_CONFLICT: candidate id %q already contains different bytes", id)
 	}
-	return existing, nil
 }
 
 func (s *Store) Read(entry Entry) ([]byte, error) {
