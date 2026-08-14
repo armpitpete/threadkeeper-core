@@ -41,24 +41,43 @@ Installed:
 
 The real production Genesis ledger has **not** yet been instantiated.
 
-## Authoritative actor-policy candidate under review
+## Authoritative actor policy installed
 
-Issue #41 / PR #42 removes the remaining ambient authentication trust source:
+Issue #41 / PR #42 merged as `f4ea4d7a7ab286446ca560a67619c181605fc189` after exact-head conformance #204 and hostile self-review.
 
-- canonical digest-bound initial actor policy at `config/authority/actor-policy/root.json`;
-- Genesis `initial_authorities` must exactly match actors granted by the root policy;
-- only canonical raw-base64 Ed25519 public keys are trusted; duplicate/unsorted/malformed policy material fails closed;
-- direct later root-policy mutation/removal/rename is rejected during replay;
-- current policy is derived from the exact authoritative ledger snapshot, not runtime caller configuration;
-- governed target `authority:actor-policy` / record kind `core.actor-auth-policy-v1` supports policy creation/rotation through existing exclusive reducer semantics;
-- actor-policy values are semantically validated before candidate acceptance/CAS;
-- governed policy revocation fails closed and never falls back to Genesis;
-- supported Fresh Genesis bootstrap requires the root actor policy plus the event-schema/reducer-binding machinery needed to rotate/revoke it;
-- exported service admission no longer accepts a caller-supplied `actorauth.Policy`;
-- service admission requires request `ledger_id` and `expected_state` to match the exact policy-loading snapshot before Ed25519 authentication/authorization;
-- `AUTHORITY_WRITES_DISABLED` remains the first service check.
+Installed:
 
-This lane does not select real production keys/grants and does not enable public writes.
+- canonical digest-bound actor policy at `config/authority/actor-policy/root.json` whose bytes declare exact `ledger_id` and `authority_policy_version`;
+- exact Genesis `initial_authorities` reconciliation;
+- canonical raw-base64 Ed25519 public keys and strict duplicate/ordering/active-key validation;
+- immutable root-policy path and replay/recovery binding to its version/content digest;
+- current policy derived from the exact authoritative replay snapshot rather than runtime caller configuration;
+- governed target `authority:actor-policy` / record kind `core.actor-auth-policy-v1` for policy creation/replacement/revocation;
+- wrong-ledger/wrong-policy-version governed policy values rejected before CAS;
+- terminal policy revocation with no Genesis fallback;
+- exported service admission with no caller-supplied `actorauth.Policy` path;
+- exact request ledger/head binding before Ed25519 authentication/authorization;
+- `AUTHORITY_WRITES_DISABLED` still evaluated before ledger/policy/authentication work.
+
+Real production actor IDs/public keys/grants remain deployment inputs and have not been selected by the code lane.
+
+## Load/resource proof candidate under review
+
+Issue #43 / PR #44 adds the remaining code-side load/resource proof machinery without claiming production capacity:
+
+- strict explicit load/resource envelopes with no silent defaults;
+- sampled peak and settled Go heap/goroutine/process descriptor-or-handle evidence;
+- Linux `/proc/self/fd` and Windows `GetProcessHandleCount` process metrics;
+- a repository/CI reference envelope explicitly separated from production sizing;
+- concurrent full `ProveRecovery` replay requiring exact baseline RecoveryProof equivalence;
+- restored-copy replay-under-load equivalence proof;
+- synchronized limiter burst proof with explicit overload rather than unbounded queueing;
+- 128-way concurrent proof that `AUTHORITY_WRITES_DISABLED` dominates before ledger access;
+- `ledger-load-proof` CLI for later production-envelope measurement;
+- load-safety evidence matrix and production runbook;
+- checkpoint acceleration clarified as conditional/optional: full replay remains authoritative while acceleration is disabled.
+
+Passing this lane will close **load-proof machinery only**. The actual production load/resource envelope remains open until the real production-shaped deployment supplies and passes its reviewed envelope.
 
 ## Installed assurance/read capabilities
 
@@ -69,7 +88,7 @@ This lane does not select real production keys/grants and does not enable public
 - source registry, provenance graph, relationships/conflicts and evidence catalog;
 - bitemporal time, coverage/completeness and confidentiality/redaction models;
 - proposal/review bundles and deterministic policy simulation;
-- recovery-fork classification and explicit operator-resolution workflow;
+- recovery fork classification and explicit operator-resolution workflow;
 - destructive non-empty bare-ledger backup/restore proof comparing Genesis identity, head, replay and projection;
 - verified derived replay checkpoints;
 - Ed25519 external witness primitive;
@@ -93,11 +112,9 @@ The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da49
 
 ## Remaining protected release work
 
-After PR #42 is accepted:
-
-1. instantiate the actual production Fresh Genesis ledger with the approved real actor public keys/grants and prove ledger/quarantine filesystem ownership/non-user-writability on that deployment;
-2. declare and prove the final load/resource envelope, including bounded memory/file-descriptor behavior and explicit overload/backpressure;
-3. perform destructive restore from an independently operated secondary backup location and prove exact Genesis/head/replay/projection equivalence;
+1. instantiate the actual production Fresh Genesis ledger with approved real actor public keys/grants and prove ledger/quarantine filesystem ownership/non-user-writability on that deployment;
+2. after Issue #43 is accepted, declare and measure the **actual production** load/resource envelope using `ledger-load-proof` on that production-shaped target;
+3. perform destructive restore from an independently operated secondary backup location and prove exact Genesis/actor-policy/head/replay/projection equivalence;
 4. run full production-shaped end-to-end acceptance: fresh install → Genesis → authoritative policy → authenticate → write → restart → retry → conflict → independent restore → replay;
 5. only then consider removing `AUTHORITY_WRITES_DISABLED` through a separately reviewed release decision.
 
