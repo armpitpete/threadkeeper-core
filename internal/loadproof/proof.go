@@ -103,7 +103,7 @@ func ReferenceEnvelope() Envelope {
 		IterationsPerWorker:        4,
 		MaxPeakHeapGrowthBytes:     128 << 20,
 		MaxSettledHeapGrowthBytes:  64 << 20,
-		MaxPeakGoroutineGrowth:     32,
+		MaxPeakGoroutineGrowth:     64,
 		MaxSettledGoroutineGrowth:  8,
 		MaxPeakOpenHandleGrowth:    128,
 		MaxSettledOpenHandleGrowth: 16,
