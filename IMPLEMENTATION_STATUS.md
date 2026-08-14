@@ -70,7 +70,7 @@ This lane does not select real production keys/grants and does not enable public
 - bitemporal time, coverage/completeness and confidentiality/redaction models;
 - proposal/review bundles and deterministic policy simulation;
 - recovery-fork classification and explicit operator-resolution workflow;
-- destructive bare-ledger backup/restore proof comparing Genesis identity, head, replay and projection;
+- destructive non-empty bare-ledger backup/restore proof comparing Genesis identity, head, replay and projection;
 - verified derived replay checkpoints;
 - Ed25519 external witness primitive;
 - federated references with local authority disposition;
