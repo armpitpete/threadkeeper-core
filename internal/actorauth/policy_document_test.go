@@ -10,10 +10,12 @@ import (
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 )
 
+const testAuthorityPolicyVersion = "authority-policy:test:v1"
+
 func TestPolicyDocumentRejectsUnknownField(t *testing.T) {
 	doc := validPolicyDocumentValue(t)
 	doc["ambient_override"] = true
-	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test")
+	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test", testAuthorityPolicyVersion)
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("unknown policy field = %v", err)
 	}
@@ -25,7 +27,7 @@ func TestPolicyDocumentRejectsUnsortedKeys(t *testing.T) {
 	second := clonePolicyKey(keys[0])
 	second["key_id"] = "key:aaa"
 	doc["keys"] = []map[string]any{keys[0], second}
-	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test")
+	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test", testAuthorityPolicyVersion)
 	if err == nil || !strings.Contains(err.Error(), "keys must be sorted") {
 		t.Fatalf("unsorted keys = %v", err)
 	}
@@ -35,7 +37,7 @@ func TestPolicyDocumentRejectsDuplicateGrant(t *testing.T) {
 	doc := validPolicyDocumentValue(t)
 	grant := doc["grants"].([]map[string]any)[0]
 	doc["grants"] = []map[string]any{grant, clonePolicyGrant(grant)}
-	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test")
+	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test", testAuthorityPolicyVersion)
 	if err == nil || !strings.Contains(err.Error(), "duplicate actor grant") {
 		t.Fatalf("duplicate grant = %v", err)
 	}
@@ -44,7 +46,7 @@ func TestPolicyDocumentRejectsDuplicateGrant(t *testing.T) {
 func TestPolicyDocumentRejectsMalformedPublicKey(t *testing.T) {
 	doc := validPolicyDocumentValue(t)
 	doc["keys"].([]map[string]any)[0]["public_key"] = base64.RawStdEncoding.EncodeToString([]byte("too short"))
-	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test")
+	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test", testAuthorityPolicyVersion)
 	if err == nil || !strings.Contains(err.Error(), "Ed25519 public key") {
 		t.Fatalf("malformed public key = %v", err)
 	}
@@ -53,15 +55,31 @@ func TestPolicyDocumentRejectsMalformedPublicKey(t *testing.T) {
 func TestPolicyDocumentRejectsGrantWithoutActiveKey(t *testing.T) {
 	doc := validPolicyDocumentValue(t)
 	doc["keys"].([]map[string]any)[0]["revoked"] = true
-	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test")
+	_, _, err := ParsePolicyDocument(completePolicyJSON(t, doc), "ledger:test", testAuthorityPolicyVersion)
 	if err == nil || !strings.Contains(err.Error(), "no active trusted key") {
 		t.Fatalf("grant without active key = %v", err)
 	}
 }
 
+func TestPolicyDocumentRejectsWrongLedgerIdentity(t *testing.T) {
+	raw := completePolicyJSON(t, validPolicyDocumentValue(t))
+	_, _, err := ParsePolicyDocument(raw, "ledger:other", testAuthorityPolicyVersion)
+	if err == nil || !strings.Contains(err.Error(), "ledger_id") || !strings.Contains(err.Error(), "does not match authoritative ledger") {
+		t.Fatalf("wrong ledger identity = %v", err)
+	}
+}
+
+func TestPolicyDocumentRejectsWrongAuthorityPolicyVersion(t *testing.T) {
+	raw := completePolicyJSON(t, validPolicyDocumentValue(t))
+	_, _, err := ParsePolicyDocument(raw, "ledger:test", "authority-policy:other:v1")
+	if err == nil || !strings.Contains(err.Error(), "authority_policy_version") || !strings.Contains(err.Error(), "does not match authoritative policy") {
+		t.Fatalf("wrong authority policy version = %v", err)
+	}
+}
+
 func TestPolicyDocumentInitialAuthoritiesMustMatchGrantedActors(t *testing.T) {
 	raw := completePolicyJSON(t, validPolicyDocumentValue(t))
-	doc, _, err := ParsePolicyDocument(raw, "ledger:test")
+	doc, _, err := ParsePolicyDocument(raw, "ledger:test", testAuthorityPolicyVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,6 +96,8 @@ func validPolicyDocumentValue(t *testing.T) map[string]any {
 	}
 	publicKey := ed25519.NewKeyFromSeed(seed).Public().(ed25519.PublicKey)
 	return map[string]any{
+		"ledger_id":                 "ledger:test",
+		"authority_policy_version": testAuthorityPolicyVersion,
 		"max_proof_lifetime_seconds": int64(300),
 		"keys": []map[string]any{{
 			"actor_id":   "actor:owner",
