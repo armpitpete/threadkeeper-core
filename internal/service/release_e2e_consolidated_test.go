@@ -2,12 +2,13 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -165,6 +166,11 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 		restarted.Close()
 		t.Fatalf("restart changed RecoveryProof: %v", err)
 	}
+	restartedProofSHA, err := restoreproof.RecoveryProofSHA256(*restartedProof)
+	if err != nil {
+		restarted.Close()
+		t.Fatal(err)
+	}
 
 	retry, err := ledger.AcceptWriteCandidate(ctx, restarted, *winner)
 	if err != nil || retry == nil || retry.Status != ledger.WriteStatusAlreadyAccepted || retry.AcceptedCommit != h1 {
@@ -186,8 +192,18 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 		t.Fatalf("same-key conflict moved authority: head=%s err=%v want=%s", current, err, h1)
 	}
 
-	backup := filepath.Join(t.TempDir(), "secondary-local.git")
-	runE2EGit(t, "", "clone", "--bare", "--no-hardlinks", restarted.GitDir(), backup)
+	// Make one real file artifact rather than claiming a synthetic hash. The
+	// bundle is disposable/local test evidence and is still not operational
+	// independence evidence.
+	backupBundle := filepath.Join(t.TempDir(), "secondary-local.bundle")
+	runE2EGit(t, restarted.GitDir(), "bundle", "create", backupBundle, "--all")
+	backupBytes, err := os.ReadFile(backupBundle)
+	if err != nil {
+		restarted.Close()
+		t.Fatal(err)
+	}
+	backupSum := sha256.Sum256(backupBytes)
+	backupSHA := fmt.Sprintf("%x", backupSum[:])
 	if err := restarted.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +211,7 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	restoredDir := filepath.Join(t.TempDir(), "restored-authority.git")
-	runE2EGit(t, "", "clone", "--bare", "--no-hardlinks", backup, restoredDir)
+	runE2EGit(t, "", "clone", "--bare", backupBundle, restoredDir)
 	restored, err := gitledger.New(restoredDir, gitledger.DefaultRef)
 	if err != nil {
 		t.Fatal(err)
@@ -209,8 +225,8 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 		"secondary_location_id":          "location:test-tempdir",
 		"secondary_operator_id":          "operator:test-harness",
 		"backup_set_id":                  "backup:e2e-set-v1",
-		"backup_artifact_id":             "artifact:e2e-bare-clone-v1",
-		"backup_artifact_sha256":         strings.Repeat("a", 64),
+		"backup_artifact_id":             "artifact:e2e-git-bundle-v1",
+		"backup_artifact_sha256":         backupSHA,
 		"original_recovery_proof_sha256": originalProofSHA,
 		"captured_at":                    "2026-08-14T14:02:00Z",
 		"restored_at":                    "2026-08-14T14:03:00Z",
@@ -230,6 +246,9 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 	if !restoreReport.CoreEquivalencePassed || restoreReport.OperationalIndependenceStatus != restoreproof.OperationalIndependenceRequiresExternalReview {
 		t.Fatalf("unexpected restore report: %#v", restoreReport)
 	}
+	if restoreReport.BackupArtifactSHA256 != backupSHA || restoreReport.RestoredRecoveryProofSHA256 != originalProofSHA {
+		t.Fatalf("restore report lost artifact/proof binding: %#v", restoreReport)
+	}
 	restoredManifest, err := ledger.Replay(ctx, restored)
 	if err != nil {
 		t.Fatal(err)
@@ -242,26 +261,29 @@ func TestCoreV1ConsolidatedReleaseAcceptanceEvidence(t *testing.T) {
 	}
 
 	acceptanceEvidence := map[string]any{
-		"schema_version":                         "threadkeeper.core-v1-e2e-acceptance.v1",
-		"genesis_commit":                         genesisEvidence.GenesisCommit,
-		"genesis_content_sha256":                 genesisEvidence.GenesisContentSHA256,
-		"actor_policy_root_content_sha256":       genesisEvidence.ActorPolicyContentSHA256,
-		"actor_policy_current_content_sha256":    restartedPolicy.PolicyContentSHA,
-		"authenticated_actor_id":                 principal.ActorID,
-		"authenticated_key_id":                   principal.KeyID,
-		"request_context":                        requestContext,
-		"accepted_event_id":                      accepted.EventID,
-		"accepted_idempotency_key":               accepted.IdempotencyKey,
-		"accepted_content_sha256":                accepted.ContentSHA256,
-		"accepted_commit":                        h1,
-		"restart_retry_status":                   retry.Status,
-		"competing_write_disposition":            "stale_state_no_rebase",
-		"same_key_conflict_disposition":          "idempotency_conflict",
-		"pre_restore_recovery_proof_sha256":       originalProofSHA,
-		"restored_recovery_proof_sha256":          restoreReport.RestoredRecoveryProofSHA256,
-		"restored_core_equivalence":               restoreReport.CoreEquivalencePassed,
-		"operational_independence_status":         restoreReport.OperationalIndependenceStatus,
-		"authority_writes_enabled":                AuthorityWritesEnabled(),
+		"schema_version":                       "threadkeeper.core-v1-e2e-acceptance.v1",
+		"genesis_commit":                       genesisEvidence.GenesisCommit,
+		"genesis_content_sha256":               genesisEvidence.GenesisContentSHA256,
+		"actor_policy_version":                 policySnapshot.Policy.Version,
+		"actor_policy_root_content_sha256":     genesisEvidence.ActorPolicyContentSHA256,
+		"actor_policy_current_content_sha256":  restartedPolicy.PolicyContentSHA,
+		"authenticated_actor_id":               principal.ActorID,
+		"authenticated_key_id":                 principal.KeyID,
+		"request_context":                      requestContext,
+		"accepted_event_id":                    accepted.EventID,
+		"accepted_idempotency_key":             accepted.IdempotencyKey,
+		"accepted_content_sha256":              accepted.ContentSHA256,
+		"accepted_commit":                      h1,
+		"restart_recovery_proof_sha256":        restartedProofSHA,
+		"restart_retry_status":                 retry.Status,
+		"competing_write_disposition":          "stale_state_no_rebase",
+		"same_key_conflict_disposition":        "idempotency_conflict",
+		"backup_artifact_sha256":               backupSHA,
+		"pre_restore_recovery_proof_sha256":    originalProofSHA,
+		"restored_recovery_proof_sha256":       restoreReport.RestoredRecoveryProofSHA256,
+		"restored_core_equivalence":             restoreReport.CoreEquivalencePassed,
+		"operational_independence_status":       restoreReport.OperationalIndependenceStatus,
+		"authority_writes_enabled":              AuthorityWritesEnabled(),
 	}
 	rawEvidence, err := json.Marshal(acceptanceEvidence)
 	if err != nil {
