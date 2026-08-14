@@ -87,13 +87,13 @@ Installed:
 - load-safety evidence matrix and production runbook;
 - checkpoint acceleration clarified as conditional/optional: full replay remains authoritative while acceleration is disabled.
 
-The actual production load/resource envelope remains OPEN. Issue #51 records the operational gate and requires explicit owner review of production concurrency/workload/resource ceilings before the read-only production measurement can be accepted.
+The initial production envelope `threadkeeper-core-production-initial-v1` is accepted in Issue #51: 4 concurrent workers × 25 iterations, 128 MiB/64 MiB peak/settled heap-growth ceilings, 32/8 goroutine-growth ceilings, 64/16 open-handle-growth ceilings, with the open-handle metric mandatory. The read-only production measurement itself remains OPEN; acceptance of the envelope is not a load PASS.
 
-## Restore-verification candidate under review
+## Restore-verification machinery installed
 
-Issue #46 / PR #49 adds Core-side independent-secondary restore verification without allowing caller self-certification of operational independence.
+Issue #46 / PR #49 squash-merged as protected `main` `a51a6ccfdecc64797bdd263fa9bd9fc5f2d15b71` from exact reviewed head `c164628feeba5e9ef937a2fbeaf84102066efa40` after exact-head conformance #239 and hostile self-review.
 
-Candidate scope:
+Installed:
 
 - strict canonical/digest-bound secondary provenance declarations;
 - exact original RecoveryProof parsing and semantic hashing;
@@ -104,7 +104,13 @@ Candidate scope:
 - hostile regressions for malformed/contradictory provenance and altered authority state;
 - operational runbook requiring real external custody/provider/operator evidence.
 
-This candidate does not itself perform the destructive independently operated secondary restore. Issue #51 keeps that production mutation behind a new explicit owner authorization.
+This machinery does not itself prove that a backup is genuinely independently operated. Issue #51 keeps the destructive production restore behind a new explicit owner authorization and external evidence review.
+
+## Core v1 E2E acceptance candidate under review
+
+Issue #50 / PR #52 is the final code-side/reference E2E lane. The disposable test sequence combines Fresh Genesis, ledger-derived actor policy, exact Ed25519 authentication, hard service-gate rejection, real quarantine/CAS acceptance, a stale competing H0 candidate with no rebase, restart/retry/idempotency conflict, and the merged restore-verification path.
+
+The candidate emits machine-readable `CORE_V1_E2E_ACCEPTANCE` evidence and ends with `authority_writes_enabled: false`. Its local temporary backup/restore is implementation evidence only, not independent-secondary operational evidence.
 
 ## Installed assurance/read capabilities
 
@@ -139,12 +145,11 @@ The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da49
 
 ## Remaining protected release work
 
-1. accept a reviewed production load/resource envelope and run the read-only production `ledger-load-proof` recorded in Issue #51;
-2. finish review/integration of Issue #46 / PR #49 restore-verification machinery;
+1. complete review/integration of Issue #50 / PR #52 E2E machinery;
+2. run the accepted `threadkeeper-core-production-initial-v1` envelope through the read-only production `ledger-load-proof` and preserve its exact evidence under Issue #51;
 3. select and evidence a genuinely independent secondary custody boundary, then obtain new explicit authorization before any destructive production restore/replacement and prove exact recovery equivalence under Issue #51;
-4. complete the consolidated write-disabled Core v1 E2E machinery in Issue #50, including Fresh Genesis → ledger-derived actor policy → test-only authentication primitive → real quarantine/CAS → restart/retry/conflict → restore verification;
-5. run the final production-shaped acceptance sequence and separately review any service-activation candidate while `AUTHORITY_WRITES_DISABLED` remains closed;
-6. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
+4. only after the production operational gates pass, prepare and separately review service activation while `AUTHORITY_WRITES_DISABLED` remains closed;
+5. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
 
 No public authority-write transport or long-running production service is currently enabled.
 
