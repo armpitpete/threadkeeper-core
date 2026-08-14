@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/armpitpete/threadkeeper-core/internal/actorauth"
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/digest"
 	"github.com/armpitpete/threadkeeper-core/internal/genesis"
@@ -32,20 +33,22 @@ type ReplayEntry struct {
 }
 
 type ReplayManifest struct {
-	LedgerCommit          string             `json:"ledger_commit"`
-	AuthoritativeRef      string             `json:"authoritative_ref"`
-	GitObjectFormat       string             `json:"git_object_format"`
-	BareRepository        bool               `json:"bare_repository"`
-	GenesisCommit         string             `json:"genesis_commit"`
-	GenesisRoot           genesis.Root       `json:"genesis_root"`
-	HistoryCommitCount    int                `json:"history_commit_count"`
-	EventCount            int                `json:"event_count"`
-	ReducerBindingCount   int                `json:"reducer_binding_count"`
-	GovernedRecordCount   int                `json:"governed_record_count"`
-	GovernedRecordsSHA256 string             `json:"governed_records_sha256"`
-	GovernedRecords       reducer.Projection `json:"governed_records"`
-	ReplaySHA256          string             `json:"replay_sha256"`
-	Events                []ReplayEntry      `json:"events"`
+	LedgerCommit                 string             `json:"ledger_commit"`
+	AuthoritativeRef             string             `json:"authoritative_ref"`
+	GitObjectFormat              string             `json:"git_object_format"`
+	BareRepository               bool               `json:"bare_repository"`
+	GenesisCommit                string             `json:"genesis_commit"`
+	GenesisRoot                  genesis.Root       `json:"genesis_root"`
+	ActorPolicyVersion           string             `json:"actor_policy_version"`
+	ActorPolicyRootContentSHA256 string             `json:"actor_policy_root_content_sha256"`
+	HistoryCommitCount           int                `json:"history_commit_count"`
+	EventCount                   int                `json:"event_count"`
+	ReducerBindingCount          int                `json:"reducer_binding_count"`
+	GovernedRecordCount          int                `json:"governed_record_count"`
+	GovernedRecordsSHA256        string             `json:"governed_records_sha256"`
+	GovernedRecords              reducer.Projection `json:"governed_records"`
+	ReplaySHA256                 string             `json:"replay_sha256"`
+	Events                       []ReplayEntry      `json:"events"`
 }
 
 type eventDocument struct {
@@ -95,21 +98,23 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err != nil {
 		return nil, err
 	}
-	genesisRoot, genesisCommit, err := validateGenesisHistory(ctx, r, history)
+	genesisRoot, genesisCommit, rootPolicyDoc, err := validateGenesisHistory(ctx, r, history)
 	if err != nil {
 		return nil, err
 	}
 
 	manifest := &ReplayManifest{
-		LedgerCommit:       head,
-		AuthoritativeRef:   r.Ref(),
-		GitObjectFormat:    objectFormat,
-		BareRepository:     bare,
-		GenesisCommit:      genesisCommit,
-		GenesisRoot:        genesisRoot,
-		HistoryCommitCount: len(history),
-		Events:             []ReplayEntry{},
-		GovernedRecords:    reducer.Projection{},
+		LedgerCommit:                 head,
+		AuthoritativeRef:             r.Ref(),
+		GitObjectFormat:              objectFormat,
+		BareRepository:               bare,
+		GenesisCommit:                genesisCommit,
+		GenesisRoot:                  genesisRoot,
+		ActorPolicyVersion:           rootPolicyDoc.AuthorityPolicyVersion,
+		ActorPolicyRootContentSHA256: rootPolicyDoc.ContentSHA256,
+		HistoryCommitCount:           len(history),
+		Events:                       []ReplayEntry{},
+		GovernedRecords:              reducer.Projection{},
 	}
 	seenEventIDs := map[string]ReplayEntry{}
 	seenIdempotencyKeys := map[string]ReplayEntry{}
@@ -167,7 +172,7 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 			}
 
 			if strings.HasPrefix(entry.EventType, "core.record.") {
-				projection, err = applyGovernedRecordEvent(projection, bindings, commit, validated)
+				projection, err = applyGovernedRecordEvent(projection, bindings, genesisRoot, commit, validated)
 				if err != nil {
 					return nil, fmt.Errorf("event %s at %s reducer: %w", entry.Path, commit.ID, err)
 				}
@@ -198,59 +203,60 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	return manifest, nil
 }
 
-func validateGenesisHistory(ctx context.Context, r *gitledger.Reader, history []gitledger.Commit) (genesis.Root, string, error) {
+func validateGenesisHistory(ctx context.Context, r *gitledger.Reader, history []gitledger.Commit) (genesis.Root, string, actorauth.PolicyDocument, error) {
 	if len(history) == 0 {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: authoritative ledger has no root commit")
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: authoritative ledger has no root commit")
 	}
 	rootCommit := history[0].ID
 	changes, err := r.ImmutableJSONAdditions(ctx, rootCommit, genesis.LedgerPrefix)
 	if err != nil {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root Genesis tree: %w", err)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: root Genesis tree: %w", err)
 	}
 	if len(changes) != 1 || changes[0] != genesis.LedgerPath {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root commit %s must add exactly %q, got %v", rootCommit, genesis.LedgerPath, changes)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: root commit %s must add exactly %q, got %v", rootCommit, genesis.LedgerPath, changes)
 	}
 	rootEvents, err := r.EventAdditions(ctx, rootCommit)
 	if err != nil {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: inspect root events: %w", err)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_ROOT_INVALID: inspect root events: %w", err)
 	}
 	if len(rootEvents) != 0 {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_ROOT_INVALID: root commit must not contain durable events")
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_ROOT_INVALID: root commit must not contain durable events")
 	}
 	raw, err := r.ReadRegularFile(ctx, rootCommit, genesis.LedgerPath)
 	if err != nil {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: read root record: %w", err)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: read root record: %w", err)
 	}
 	root, err := genesis.Validate(raw)
 	if err != nil {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: root record at %s: %w", rootCommit, err)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: root record at %s: %w", rootCommit, err)
 	}
 	actualSchemas, err := schemaIDsAt(ctx, r, rootCommit)
 	if err != nil {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_INVALID: inspect initial schemas: %w", err)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_INVALID: inspect initial schemas: %w", err)
 	}
 	if len(actualSchemas) != len(root.InitialSchemas) {
-		return genesis.Root{}, "", fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
 	}
 	for i := range actualSchemas {
 		if actualSchemas[i] != root.InitialSchemas[i] {
-			return genesis.Root{}, "", fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
+			return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_SCHEMA_MISMATCH: Genesis declares %v; root contains %v", root.InitialSchemas, actualSchemas)
 		}
 	}
-	if err := validateInitialActorPolicyHistory(ctx, r, history, root); err != nil {
-		return genesis.Root{}, "", err
+	rootPolicyDoc, err := validateInitialActorPolicyHistory(ctx, r, history, root)
+	if err != nil {
+		return genesis.Root{}, "", actorauth.PolicyDocument{}, err
 	}
 
 	for _, commit := range history[1:] {
 		later, err := r.ImmutableJSONAdditions(ctx, commit.ID, genesis.LedgerPrefix)
 		if err != nil {
-			return genesis.Root{}, "", fmt.Errorf("GENESIS_IMMUTABLE: commit %s: %w", commit.ID, err)
+			return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_IMMUTABLE: commit %s: %w", commit.ID, err)
 		}
 		if len(later) != 0 {
-			return genesis.Root{}, "", fmt.Errorf("GENESIS_IMMUTABLE: commit %s adds later Genesis material %v", commit.ID, later)
+			return genesis.Root{}, "", actorauth.PolicyDocument{}, fmt.Errorf("GENESIS_IMMUTABLE: commit %s adds later Genesis material %v", commit.ID, later)
 		}
 	}
-	return root, rootCommit, nil
+	return root, rootCommit, rootPolicyDoc, nil
 }
 
 func schemaIDsAt(ctx context.Context, r *gitledger.Reader, commit string) ([]string, error) {
@@ -282,7 +288,7 @@ func schemaIDsAt(ctx context.Context, r *gitledger.Reader, commit string) ([]str
 	return ids, nil
 }
 
-func applyGovernedRecordEvent(current reducer.Projection, bindings *policy.ReducerBindingSnapshot, commit gitledger.Commit, validated validatedEvent) (reducer.Projection, error) {
+func applyGovernedRecordEvent(current reducer.Projection, bindings *policy.ReducerBindingSnapshot, root genesis.Root, commit gitledger.Commit, validated validatedEvent) (reducer.Projection, error) {
 	doc := validated.Document
 	binding, exists := bindings.ByRecordKind[doc.RecordKind]
 	if !exists {
@@ -299,6 +305,11 @@ func applyGovernedRecordEvent(current reducer.Projection, bindings *policy.Reduc
 	}
 	if doc.ExpectedLedgerCommit != commit.Parent {
 		return nil, fmt.Errorf("EXPECTED_LEDGER_COMMIT_MISMATCH: event has %q accepting parent is %q", doc.ExpectedLedgerCommit, commit.Parent)
+	}
+	if doc.RecordKind == actorauth.PolicyRecordKind && (doc.EventType == reducer.EventCreated || doc.EventType == reducer.EventReplaced) {
+		if _, _, err := actorauth.ParsePolicyDocument(doc.Value, root.LedgerID, binding.AuthorityPolicyVersion); err != nil {
+			return nil, err
+		}
 	}
 	return reducer.Apply(current, bindings.ReducerBindings(), reducer.Event{
 		EventID:        doc.EventID,
@@ -400,27 +411,31 @@ func validateEvent(ctx context.Context, r *gitledger.Reader, registry *schema.Re
 
 func replayDigest(manifest *ReplayManifest) (string, error) {
 	payload := struct {
-		LedgerCommit          string        `json:"ledger_commit"`
-		AuthoritativeRef      string        `json:"authoritative_ref"`
-		GitObjectFormat       string        `json:"git_object_format"`
-		GenesisCommit         string        `json:"genesis_commit"`
-		GenesisRoot           genesis.Root  `json:"genesis_root"`
-		HistoryCommitCount    int           `json:"history_commit_count"`
-		ReducerBindingCount   int           `json:"reducer_binding_count"`
-		GovernedRecordCount   int           `json:"governed_record_count"`
-		GovernedRecordsSHA256 string        `json:"governed_records_sha256"`
-		Events                []ReplayEntry `json:"events"`
+		LedgerCommit                 string        `json:"ledger_commit"`
+		AuthoritativeRef             string        `json:"authoritative_ref"`
+		GitObjectFormat              string        `json:"git_object_format"`
+		GenesisCommit                string        `json:"genesis_commit"`
+		GenesisRoot                  genesis.Root  `json:"genesis_root"`
+		ActorPolicyVersion           string        `json:"actor_policy_version"`
+		ActorPolicyRootContentSHA256 string        `json:"actor_policy_root_content_sha256"`
+		HistoryCommitCount           int           `json:"history_commit_count"`
+		ReducerBindingCount          int           `json:"reducer_binding_count"`
+		GovernedRecordCount          int           `json:"governed_record_count"`
+		GovernedRecordsSHA256        string        `json:"governed_records_sha256"`
+		Events                       []ReplayEntry `json:"events"`
 	}{
-		LedgerCommit:          manifest.LedgerCommit,
-		AuthoritativeRef:      manifest.AuthoritativeRef,
-		GitObjectFormat:       manifest.GitObjectFormat,
-		GenesisCommit:         manifest.GenesisCommit,
-		GenesisRoot:           manifest.GenesisRoot,
-		HistoryCommitCount:    manifest.HistoryCommitCount,
-		ReducerBindingCount:   manifest.ReducerBindingCount,
-		GovernedRecordCount:   manifest.GovernedRecordCount,
-		GovernedRecordsSHA256: manifest.GovernedRecordsSHA256,
-		Events:                manifest.Events,
+		LedgerCommit:                 manifest.LedgerCommit,
+		AuthoritativeRef:             manifest.AuthoritativeRef,
+		GitObjectFormat:              manifest.GitObjectFormat,
+		GenesisCommit:                manifest.GenesisCommit,
+		GenesisRoot:                  manifest.GenesisRoot,
+		ActorPolicyVersion:           manifest.ActorPolicyVersion,
+		ActorPolicyRootContentSHA256: manifest.ActorPolicyRootContentSHA256,
+		HistoryCommitCount:           manifest.HistoryCommitCount,
+		ReducerBindingCount:          manifest.ReducerBindingCount,
+		GovernedRecordCount:          manifest.GovernedRecordCount,
+		GovernedRecordsSHA256:        manifest.GovernedRecordsSHA256,
+		Events:                       manifest.Events,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
