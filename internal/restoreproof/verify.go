@@ -86,8 +86,8 @@ func DecodeRecoveryProof(raw []byte) (ledger.RecoveryProof, error) {
 		}
 		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: trailing data: %w", err)
 	}
-	if proof.LedgerCommit == "" || proof.AuthoritativeRef == "" || proof.GitObjectFormat == "" || proof.GenesisCommit == "" || proof.ProjectID == "" || proof.LedgerID == "" || proof.GenesisContentSHA256 == "" || proof.ActorPolicyVersion == "" || proof.ActorPolicyRootContentSHA256 == "" || proof.GovernedRecordsSHA256 == "" || proof.ReplaySHA256 == "" || proof.HistoryCommitCount <= 0 {
-		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: proof lacks required authority identity")
+	if err := ValidateRecoveryProof(proof); err != nil {
+		return ledger.RecoveryProof{}, err
 	}
 	return proof, nil
 }
@@ -113,6 +113,9 @@ func RecoveryProofSHA256(proof ledger.RecoveryProof) (string, error) {
 func Verify(ctx context.Context, r *gitledger.Reader, original ledger.RecoveryProof, provenance Provenance) (*Report, error) {
 	if r == nil {
 		return nil, fmt.Errorf("RESTORE_VERIFY_INVALID: restored ledger Reader is required")
+	}
+	if err := ValidateRecoveryProof(original); err != nil {
+		return nil, err
 	}
 	if err := provenance.Validate(); err != nil {
 		return nil, err
