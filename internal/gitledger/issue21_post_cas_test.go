@@ -61,8 +61,9 @@ exec "$REAL_GIT" "$@"
 	waitForIssue21Signal(t, signalPath, cancel)
 	cancel()
 
-	if err := <-done; err != nil {
-		t.Fatalf("CAS was actually accepted but caller cancellation was reported as failure: %v", err)
+	err = <-done
+	if err == nil || !errors.Is(err, ErrCASAcceptanceRecovered) {
+		t.Fatalf("CAS was accepted under caller cancellation but did not return explicit recovered-acceptance condition: %v", err)
 	}
 	got, err := r.Head(context.Background())
 	if err != nil {
@@ -136,8 +137,9 @@ exec "$REAL_GIT" "$@"
 
 	waitForIssue21Signal(t, signalPath, cancel)
 	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("H1 was accepted and remains in authoritative history, but operation was misreported: %v", err)
+	err = <-done
+	if err == nil || !errors.Is(err, ErrCASAcceptanceRecovered) {
+		t.Fatalf("H1 is in authoritative history but recovery did not classify the ambiguous invocation explicitly: %v", err)
 	}
 	got, err := r.Head(context.Background())
 	if err != nil {
