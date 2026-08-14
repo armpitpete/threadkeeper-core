@@ -2,35 +2,54 @@
 
 The assurance programme intentionally leaves a small number of boundaries unconsumed. They are not hidden implementation gaps.
 
-## 1. CAS review status
+## Completed release prerequisites
 
-PR #11 was owner-authorised and merged to `main` as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b` after exact-head conformance passed. A genuinely independent full Issue #9 PASS was not recorded before that merge. The repository records that fact explicitly and must not represent the independent gate as having passed.
+The following formerly protected prerequisites are now established:
 
-The merged CAS boundary remains subject to fresh independent hostile review before public authority-write enablement.
+- assurance expansion PR #12 is integrated;
+- actor authentication and exact-target authorisation are implemented and wired behind the hard service write gate;
+- the owner selected the fresh-Genesis path; no legacy governance ledger/head will be fabricated;
+- recovery-fork classification and explicit operator-resolution workflow are implemented;
+- repository `main` is protected by an active ruleset requiring pull requests, resolved conversations, strict `test` and `windows-git-environment-isolation` checks, while blocking deletion and non-fast-forward/force-push updates.
 
-## 2. Assurance expansion integration
+None of these facts enables public authority writes by itself.
 
-PR #12 must be replayed/rebased onto the accepted `main`, rerun full exact-head conformance, and receive review appropriate to its security/authority-adjacent scope before merge.
+## 1. Quarantine/CAS integration and review
 
-## 3. Genesis adoption
+The candidate quarantine is now integrated into writer preparation and acceptance in this lane. Exact validated event bytes are quarantined before Git candidate materialisation; acceptance must recover the same bytes from the ledger-bound quarantine and match them to the candidate Git event before CAS. Accepted candidates are cleaned up, crash/retry completes cleanup, and abandoned candidates have a 24-hour retention window.
 
-The development ledger predates Genesis v1. Adoption requires an explicit migration decision; history must not be rewritten to fabricate genesis.
+Because this changes the CAS boundary, the resulting exact merged boundary requires a **fresh independent hostile review** before public authority-write enablement.
 
-## 4. Public write enablement
+Historical governance remains explicit: PR #11 was owner-authorised and merged as `38ea7c28f2b0f5c5ff0ca38b8da94eff17bfec5b` without a genuinely independent full Issue #9 PASS. That exception must never be rewritten as if the missing review occurred.
 
-Before any public authority writer can exist, all of the following remain required:
+## 2. Production Genesis and filesystem ownership
 
-- fresh independent hostile review of the then-exact CAS boundary;
-- actor authentication and authorisation contract + implementation;
-- service-owned/non-writable ledger deployment proof from the threat model;
-- candidate quarantine integrated into writer materialisation and independently re-reviewed because that changes the CAS boundary;
-- final load/performance envelope including bounded resource growth and overload/backpressure evidence;
-- destructive restore from an independently operated secondary backup location;
-- recovery-fork operator resolution workflow;
-- protected release/source governance, including `main` protection and required conformance checks.
+The selected deployment path is fresh Genesis. The production governance ledger must be newly created and its Genesis root must be the first authoritative record.
 
-Until those gates are accepted, `AUTHORITY_WRITES_DISABLED` remains mandatory.
+The production deployment must also prove that the authoritative ledger and its bound candidate quarantine are service-owned and not writable by untrusted users/processes. Source-repository commits and `.threadkeeper/state.json` files are not substitutes for production ledger identity.
 
-## 5. Optional operational integrations
+## 3. Final load/resource envelope
 
-These are not prerequisites for read-only Core conformance unless a deployment selects them: external witness service/key deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, and human GUI. Their contracts/primitives must not be confused with enabled services.
+The existing concurrency, CAS, idempotency, cancellation and explicit-overload tests remain necessary but are not the full production envelope. Before enablement, declare and prove bounded resource behaviour for the selected deployment, including memory and file-descriptor growth and explicit overload/backpressure behavior.
+
+## 4. Independent secondary restore
+
+Perform a destructive restore test from an independently operated secondary backup location and prove exact authoritative head, replay and projection equivalence. A backup copied to another path on the same authority boundary is not sufficient evidence for this gate.
+
+## 5. End-to-end release acceptance
+
+After the preceding gates are satisfied, run the complete production-shaped acceptance sequence:
+
+fresh install → create fresh-Genesis ledger → authenticate → authorised write → restart → idempotent retry → concurrent conflict → independent restore → replay.
+
+The final authoritative state and deterministic projection must agree across the sequence.
+
+## Public write status
+
+`AUTHORITY_WRITES_DISABLED`
+
+It remains mandatory until all release-critical gates above are accepted. No merge in this sequence silently authorises a public authority-write transport.
+
+## Optional operational integrations
+
+These are not prerequisites for Core v1 unless the deployment selects them: external witness service/key deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, and human GUI. Their contracts/primitives must not be confused with enabled services.
