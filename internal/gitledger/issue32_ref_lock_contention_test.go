@@ -101,6 +101,9 @@ exit 0
 }
 
 func TestIssue32UnresolvedRefLockContentionIsExplicitUnknown(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("manual files-ref lock fixture is exercised by the Linux conformance lane")
+	}
 	realGit, err := exec.LookPath("git")
 	if err != nil {
 		t.Fatal(err)
