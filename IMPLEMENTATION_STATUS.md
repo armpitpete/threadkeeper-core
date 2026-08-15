@@ -106,11 +106,25 @@ Installed:
 
 This machinery does not itself prove that a backup is genuinely independently operated. Issue #51 keeps the destructive production restore behind a new explicit owner authorization and external evidence review.
 
-## Core v1 E2E acceptance candidate under review
+## Core v1 E2E acceptance harness integrated
 
-Issue #50 / PR #52 is the final code-side/reference E2E lane. The disposable test sequence combines Fresh Genesis, ledger-derived actor policy, exact Ed25519 authentication, hard service-gate rejection, real quarantine/CAS acceptance, a stale competing H0 candidate with no rebase, restart/retry/idempotency conflict, and the merged restore-verification path.
+Issue #50 / PR #52 merged to protected `main` as `d39feadbe7c01258b2d36ff5d0675d994d991c68` from exact reviewed head `6d6795a1cb19f8b06270078cc67a341f0c91d604` after exact-head conformance #244 and hostile self-review PASS.
 
-The candidate emits machine-readable `CORE_V1_E2E_ACCEPTANCE` evidence and ends with `authority_writes_enabled: false`. Its local temporary backup/restore is implementation evidence only, not independent-secondary operational evidence.
+The disposable E2E sequence proves:
+
+- Fresh Genesis + ledger-derived root actor policy;
+- exact Ed25519 request signing and pure authentication against the authoritative policy snapshot;
+- exported service admission remains stopped by `AUTHORITY_WRITES_DISABLED` before ledger/auth work;
+- real quarantine/Git-candidate/exact-head CAS acceptance;
+- a second valid H0 competitor prepared before the winner is accepted, then rejected as stale after H1 with no automatic rebase or authority movement;
+- restart RecoveryProof identity and identical retry resolving `already_accepted` to the same H1;
+- conflicting same-key request failing `IDEMPOTENCY_CONFLICT` with H1 unchanged;
+- a real disposable Git bundle whose actual SHA-256 is bound into strict restore provenance;
+- local destructive restore followed by merged `restoreproof.Verify`;
+- exact Genesis, actor-policy, head, governed projection and replay equivalence after restore;
+- machine-readable `CORE_V1_E2E_ACCEPTANCE` evidence including proof/artifact digests and explicit `authority_writes_enabled: false`.
+
+The local bundle/restore remains implementation evidence only and is not independent-secondary operational evidence.
 
 ## Installed assurance/read capabilities
 
@@ -143,17 +157,26 @@ Historical governance remains explicit: PR #11 was owner-authorised without a ge
 
 The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da493593566a6017bc49`. Independent hostile re-review Issue #36 **PASSED** that exact commit, including independently constructed real-Git CAS/ref-lock attacks. That correctness gate is closed subject to the separately proved production filesystem-ownership boundary.
 
-## Remaining protected release work
+## Product boundary
 
-1. complete review/integration of Issue #50 / PR #52 E2E machinery;
-2. run the accepted `threadkeeper-core-production-initial-v1` envelope through the read-only production `ledger-load-proof` and preserve its exact evidence under Issue #51;
-3. select and evidence a genuinely independent secondary custody boundary, then obtain new explicit authorization before any destructive production restore/replacement and prove exact recovery equivalence under Issue #51;
-4. only after the production operational gates pass, prepare and separately review service activation while `AUTHORITY_WRITES_DISABLED` remains closed;
-5. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
+Core v1 is now treated as the protected kernel beneath a separate Threadkeeper application layer.
+
+The application/product programme should live in `armpitpete/threadkeeper` and own project semantics, goals, work/next-action state, user-facing decisions/evidence, gates, CLI, UI, integrations, AI continuation and portfolio behavior.
+
+See `PRODUCT_BOUNDARY.md` and `docs/product/THREADKEEPER_PRODUCT_V1_ROADMAP.md`.
+
+Core SHOULD NOT expand merely to absorb application concerns that can be implemented above the authority boundary. Product evidence must justify any new Core primitive.
+
+## Remaining protected Core release work
+
+1. run the accepted `threadkeeper-core-production-initial-v1` envelope through the read-only production `ledger-load-proof` and preserve its exact evidence under Issue #51;
+2. select and evidence a genuinely independent secondary custody boundary, then obtain new explicit authorization before any destructive production restore/replacement and prove exact recovery equivalence under Issue #51;
+3. only after the production operational gates pass, prepare and separately review service activation while `AUTHORITY_WRITES_DISABLED` remains closed;
+4. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
 
 No public authority-write transport or long-running production service is currently enabled.
 
-Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and GUI unless separately selected.
+Optional/non-v1 Core integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and GUI unless separately selected by product evidence.
 
 ## Write status
 
