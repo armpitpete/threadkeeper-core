@@ -109,6 +109,8 @@ Changing manifest semantics while retaining the same `pack_id`/`pack_version` MU
 
 `policy_body` binds the manifest to one exact policy artifact. If a pack is authored across multiple source files, v0.1 requires a canonical bundled policy artifact or equivalent immutable aggregate whose exact identity is placed in `policy_body`; a manifest MUST NOT leave the normative rule body as an unbound collection of mutable files.
 
+`body_ref` values in manifest indexes are pack-local logical locators into that exact bound policy body. v0.1 does not impose one global locator syntax across Markdown, structured data or other policy-body formats. Conformance MUST prove that every `body_ref` resolves unambiguously inside the exact bound body to the claimed assertion, evidence requirement or decision function. A `body_ref` MUST NOT be resolved against a mutable or different body version.
+
 The manifest's `pack_status` is **source-declared lifecycle metadata only**. It MUST NOT contain a value meaning Core-accepted or Core-registered, and no value of `pack_status` proves registration, activation, authority or permission to evaluate for a governed workflow.
 
 A pack MUST NOT declare an `authority_effect` other than `none` under this contract.
