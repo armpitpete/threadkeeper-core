@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:threadkeeper:schema:policy-pack-manifest:v0.1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "pack_id",
+    "pack_version",
+    "pack_status",
+    "domain",
+    "authority_effect",
+    "core_contract",
+    "object_kinds",
+    "decision_functions"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "urn:threadkeeper:schema:policy-pack-manifest:v0.1"
+    },
+    "pack_id": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    },
+    "pack_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pack_status": {
+      "enum": [
+        "candidate",
+        "accepted",
+        "superseded",
+        "revoked"
+      ]
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+    },
+    "authority_effect": {
+      "const": "none"
+    },
+    "core_contract": {
+      "const": "threadkeeper.policy-pack/v0.1"
+    },
+    "object_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      }
+    },
+    "decision_functions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "function_id",
+          "evaluation_class"
+        ],
+        "properties": {
+          "function_id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+          },
+          "evaluation_class": {
+            "enum": [
+              "DECLARATIVE",
+              "DETERMINISTIC",
+              "ADVISORY",
+              "HUMAN_REQUIRED"
+            ]
+          },
+          "inputs": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "outputs": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence_roles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}
