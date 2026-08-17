@@ -10,7 +10,10 @@
     "domain",
     "authority_effect",
     "core_contract",
+    "policy_body",
     "object_kinds",
+    "assertions",
+    "evidence_requirements",
     "decision_functions"
   ],
   "properties": {
@@ -27,11 +30,12 @@
       "minLength": 1
     },
     "pack_status": {
+      "description": "Source-declared lifecycle metadata only. This field never establishes Threadkeeper registration, activation or authority.",
       "enum": [
         "candidate",
-        "accepted",
+        "published",
         "superseded",
-        "revoked"
+        "withdrawn"
       ]
     },
     "domain": {
@@ -45,6 +49,34 @@
     "core_contract": {
       "const": "threadkeeper.policy-pack/v0.1"
     },
+    "policy_body": {
+      "type": "object",
+      "required": [
+        "source_id",
+        "exact_source_version_or_digest",
+        "object_id_or_path",
+        "exact_object_version_or_digest"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_source_version_or_digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "object_id_or_path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "exact_object_version_or_digest": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    },
     "object_kinds": {
       "type": "array",
       "minItems": 1,
@@ -53,6 +85,63 @@
         "type": "string",
         "minLength": 1,
         "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "assertion_id",
+          "body_ref"
+        ],
+        "properties": {
+          "assertion_id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+          },
+          "body_ref": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "evidence_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "requirement_id",
+          "body_ref",
+          "applies_to"
+        ],
+        "properties": {
+          "requirement_id": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+          },
+          "body_ref": {
+            "type": "string",
+            "minLength": 1
+          },
+          "applies_to": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
+            }
+          }
+        },
+        "additionalProperties": false
       }
     },
     "decision_functions": {
