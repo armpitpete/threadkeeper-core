@@ -1,0 +1,70 @@
+{
+  "schema_version": "urn:threadkeeper:schema:policy-pack-manifest:v0.1",
+  "pack_id": "vaelinya.illustration",
+  "pack_version": "0.1",
+  "pack_status": "candidate",
+  "domain": "illustration",
+  "authority_effect": "none",
+  "core_contract": "threadkeeper.policy-pack/v0.1",
+  "object_kinds": [
+    "illustration.character_anchor",
+    "illustration.candidate_anchor",
+    "illustration.derived_scene",
+    "illustration.controlled_recolour",
+    "illustration.style_master",
+    "illustration.world_anchor",
+    "illustration.experimental",
+    "illustration.legacy_reference",
+    "illustration.production_test"
+  ],
+  "decision_functions": [
+    {
+      "function_id": "classify_object",
+      "evaluation_class": "DECLARATIVE",
+      "inputs": ["request", "target", "evidence"],
+      "outputs": ["object_kind", "findings"]
+    },
+    {
+      "function_id": "classify_change",
+      "evaluation_class": "DECLARATIVE",
+      "inputs": ["requested_action", "target", "candidate"],
+      "outputs": ["change_class", "findings"]
+    },
+    {
+      "function_id": "resolve_identity",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["target", "filename", "identity_evidence"],
+      "outputs": ["resolved_identity", "conflicts", "findings"]
+    },
+    {
+      "function_id": "validate_candidate",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["candidate", "anchors", "style_evidence", "colour_policy", "world_evidence"],
+      "outputs": ["status", "assertion_results", "unresolved_items"]
+    },
+    {
+      "function_id": "recommend_outcome",
+      "evaluation_class": "DECLARATIVE",
+      "inputs": ["status", "assertion_results", "unresolved_items"],
+      "outputs": ["recommendation", "findings"]
+    },
+    {
+      "function_id": "recommend_next_action",
+      "evaluation_class": "DECLARATIVE",
+      "inputs": ["status", "recommendation", "conflicts"],
+      "outputs": ["next_action", "required_evidence"]
+    }
+  ],
+  "evidence_roles": [
+    "character_anchor",
+    "style_master",
+    "world_anchor",
+    "character_sheet",
+    "colour_register",
+    "palette_reconciliation",
+    "production_test",
+    "candidate_binary",
+    "legacy_reference"
+  ],
+  "notes": "Non-authoritative conformance example mapped from armpitpete/vaelinya-canon exact candidate commit ba38c9e04b0360146eef84f6f414ff98a123d806. Inclusion does not register or activate the external pack."
+}
