@@ -105,5 +105,5 @@
     "candidate_binary",
     "legacy_reference"
   ],
-  "notes": "Non-authoritative conformance example. The normative policy body is machine-bound above to exact Vaelinya source commit and blob identities. Inclusion does not register or activate the external pack."
+  "notes": "Non-authoritative conformance example. body_ref values are pack-local logical locators into the exact bound policy body; conformance must resolve them unambiguously. Inclusion does not register or activate the external pack."
 }
