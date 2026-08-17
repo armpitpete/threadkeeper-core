@@ -66,40 +66,28 @@
   ],
   "decision_functions": [
     {
-      "function_id": "classify_object",
-      "evaluation_class": "DECLARATIVE",
-      "inputs": ["request", "target", "evidence"],
-      "outputs": ["object_kind", "findings"]
-    },
-    {
       "function_id": "classify_change",
       "evaluation_class": "DECLARATIVE",
-      "inputs": ["requested_action", "target", "candidate"],
+      "inputs": ["request", "target", "evidence"],
       "outputs": ["change_class", "findings"]
     },
     {
       "function_id": "resolve_identity",
       "evaluation_class": "ADVISORY",
-      "inputs": ["target", "filename", "identity_evidence"],
-      "outputs": ["resolved_identity", "conflicts", "findings"]
+      "inputs": ["candidate", "references"],
+      "outputs": ["identity_result"]
     },
     {
       "function_id": "validate_candidate",
       "evaluation_class": "ADVISORY",
-      "inputs": ["candidate", "anchors", "style_evidence", "colour_policy", "world_evidence"],
-      "outputs": ["status", "assertion_results", "unresolved_items"]
+      "inputs": ["change_class", "candidate", "target", "references", "evidence"],
+      "outputs": ["evaluation"]
     },
     {
       "function_id": "recommend_outcome",
       "evaluation_class": "DECLARATIVE",
-      "inputs": ["status", "assertion_results", "unresolved_items"],
-      "outputs": ["recommendation", "findings"]
-    },
-    {
-      "function_id": "recommend_next_action",
-      "evaluation_class": "DECLARATIVE",
-      "inputs": ["status", "recommendation", "conflicts"],
-      "outputs": ["next_action", "required_evidence"]
+      "inputs": ["evaluation", "change_class"],
+      "outputs": ["recommendation"]
     }
   ],
   "evidence_roles": [
