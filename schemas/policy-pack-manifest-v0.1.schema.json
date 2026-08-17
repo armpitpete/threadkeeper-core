@@ -104,6 +104,7 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
           },
           "body_ref": {
+            "description": "Pack-local logical locator that must resolve unambiguously inside the exact bound policy body.",
             "type": "string",
             "minLength": 1
           }
@@ -129,6 +130,7 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
           },
           "body_ref": {
+            "description": "Pack-local logical locator that must resolve unambiguously inside the exact bound policy body.",
             "type": "string",
             "minLength": 1
           },
@@ -164,6 +166,7 @@
             "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$"
           },
           "body_ref": {
+            "description": "Pack-local logical locator that must resolve unambiguously inside the exact bound policy body.",
             "type": "string",
             "minLength": 1
           },
