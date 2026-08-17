@@ -41,13 +41,14 @@ Every conforming Policy Pack MUST preserve these Core invariants:
 
 1. **No silent promotion** — pack output cannot become `AUTHORITATIVE` because the pack produced `PASS`, because its inputs are authoritative, or because an authoritative source independently establishes the same proposition.
 2. **Proposal is not acceptance** — a recommendation may support a proposal but cannot impersonate a decision event.
-3. **Exact-version evidence** — persisted evaluation results must identify exact pack and evidence versions or content digests.
+3. **Exact-version evidence** — persisted evaluation results must identify exact manifest, policy-body and evidence versions/digests.
 4. **Expected-state protection** — any recommendation that may lead to a protected write must preserve the exact target state/version evaluated.
 5. **Conflict preservation** — materially conflicting evidence must remain visible rather than being discarded to obtain a single answer.
 6. **Fail closed** — unresolved material identity, authority, evidence or state ambiguity cannot produce `PASS`.
 7. **Model neutrality** — AI may evaluate or assist, but receives no implicit decision authority.
 8. **Recoverability** — accepted project truth must remain recoverable if every Policy Pack evaluator and every AI component is unavailable.
 9. **Authority is external to pack self-description** — no manifest field, assertion, filename rule, status label or pack-generated result can grant authority that Core authority policy has not independently granted.
+10. **Manifest omission cannot weaken policy** — a manifest index cannot make a blocking rule disappear by failing to list it.
 
 ## 4. Conceptual boundary
 
@@ -56,7 +57,7 @@ Authoritative / exact source versions
               ↓
         Threadkeeper Core
               ↓
-     exact evidence envelope
+     verified evidence envelope
               ↓
           Policy Pack
    classify / assert / evaluate
@@ -70,13 +71,13 @@ Authoritative / exact source versions
       durable authority sink
 ```
 
-Every Policy Pack evaluation result is non-authoritative. Its Threadkeeper authority class is `DERIVED` when it is produced by reproducible application of policy/evidence, or `ADVISORY` when judgement materially contributes.
+Every Policy Pack evaluation result is non-authoritative. Its Threadkeeper authority class is `DERIVED` when it is produced without material human/model judgement, or `ADVISORY` when human/model judgement materially contributes.
 
 If an already-authoritative source independently establishes the same proposition, that authoritative proposition remains a separate authoritative record. The pack evaluation does **not** inherit, copy or acquire that authority merely because its conclusion agrees.
 
 Evaluation class (`DECLARATIVE`, `DETERMINISTIC`, `ADVISORY`, `HUMAN_REQUIRED`) describes **how a policy function is evaluated**. It is distinct from Threadkeeper authority class (`AUTHORITATIVE`, `DERIVED`, `ADVISORY`, `EPHEMERAL`). Implementations MUST NOT conflate the two.
 
-## 5. Pack identity and exact policy-body binding
+## 5. Pack identity, manifest identity and exact policy-body binding
 
 Every pack MUST have a stable logical identity, a declared version and an exact binding to the policy body whose rules it claims to expose.
 
@@ -99,6 +100,13 @@ policy_body:
 
 `pack_id` identifies the policy family. `pack_version` is a human/logical version label. Neither is an immutable source version by itself.
 
+The **manifest itself** is also governed input. Because a manifest cannot safely contain a digest of its own complete bytes, its exact source version/digest MUST be supplied and preserved by the containing evidence/registration envelope. A persisted evaluation MUST therefore identify both:
+
+- the exact manifest version/digest actually interpreted; and
+- the exact bound `policy_body` identity from that manifest.
+
+Changing manifest semantics while retaining the same `pack_id`/`pack_version` MUST NOT be treated as the same exact pack input.
+
 `policy_body` binds the manifest to one exact policy artifact. If a pack is authored across multiple source files, v0.1 requires a canonical bundled policy artifact or equivalent immutable aggregate whose exact identity is placed in `policy_body`; a manifest MUST NOT leave the normative rule body as an unbound collection of mutable files.
 
 The manifest's `pack_status` is **source-declared lifecycle metadata only**. It MUST NOT contain a value meaning Core-accepted or Core-registered, and no value of `pack_status` proves registration, activation, authority or permission to evaluate for a governed workflow.
@@ -113,14 +121,14 @@ Object kinds:
 
 - MUST be stable strings;
 - MUST be domain-scoped enough to avoid accidental collisions;
-- MUST NOT silently reinterpret an existing kind with incompatible semantics under the same pack version;
+- MUST NOT silently reinterpret an existing kind with incompatible semantics under the same exact manifest/policy-body binding;
 - MAY map to existing Core `record_kind` values where a later proposal/decision is created.
 
 Unknown or unsupported object kinds MUST fail closed or return `HOLD`; they MUST NOT be guessed into the nearest known kind.
 
-## 7. Evidence classes
+## 7. Evidence classes and authority verification
 
-A pack evaluates evidence already classified by Core or by an evidence boundary that preserves the same distinctions without granting additional authority.
+A pack evaluates evidence classified by Core or by an evidence boundary that preserves the same distinctions without granting additional authority.
 
 At minimum it MUST be able to distinguish:
 
@@ -136,6 +144,8 @@ A pack MAY define domain-specific evidence roles such as `character_anchor`, `st
 
 An external evidence boundary MAY describe material as authoritative for its own domain, but Core MUST NOT accept that classification as Threadkeeper authority unless Core authority policy independently recognises the source/version for the relevant proposition.
 
+An `authority_class` string carried in an evaluation request is metadata, not proof. A pack or untrusted caller MUST NOT make evidence `AUTHORITATIVE` by labelling it so. Before a policy function relies on `AUTHORITATIVE` status, that status MUST be resolved or verified through Core authority policy (or an explicitly equivalent trusted boundary). If verification is unavailable and the distinction is material, the evaluation MUST `HOLD`.
+
 ## 8. Evaluation request
 
 A logical Policy Pack evaluation request MUST contain or explicitly mark unknown:
@@ -146,7 +156,12 @@ request:
   pack:
     pack_id: string
     pack_version: string
-    policy_body_exact_version_or_digest: string
+    manifest_exact_version_or_digest: string
+    policy_body:
+      source_id: string
+      exact_source_version_or_digest: string
+      object_id_or_path: string
+      exact_object_version_or_digest: string
   requested_action: string
   target:
     object_id: string
@@ -167,15 +182,17 @@ request:
     evaluator_version: optional string
 ```
 
-Every evidence item used materially in an evaluation MUST retain a stable evidence/record identity, source identity, authority class and exact immutable version/digest. An opaque list of version strings is not sufficient provenance.
+Every evidence item used materially in an evaluation MUST retain a stable evidence/record identity, source identity, verified authority class and exact immutable version/digest. An opaque list of version strings is not sufficient provenance.
 
-If an evaluation may support a later authority-changing proposal, `expected_state_or_version` MUST be present and exact enough to detect stale-state use.
+The request's manifest identity and `policy_body` binding MUST match the exact manifest being evaluated. A mismatch is not a request to rebind the pack; it is an invalid/stale request and MUST fail closed.
+
+If an evaluation may support a later authority-changing proposal, `expected_state_or_version` MUST be present and exact enough to detect stale-state use. For creation, this may be an exact expected-absence/state precondition rather than a prior object version.
 
 The request MUST NOT rely solely on mutable labels such as `main`, `latest`, `current`, filename or URL when an immutable version/digest is available or required.
 
 ## 9. Policy assertions
 
-A pack MUST expose inspectable policy assertions, and the manifest MUST enumerate the assertion identities bound to the exact `policy_body`.
+A pack MUST expose inspectable policy assertions, and the manifest MUST enumerate assertion identities bound to the exact `policy_body`.
 
 Each assertion SHOULD have:
 
@@ -189,6 +206,10 @@ Each assertion SHOULD have:
 - unknown / incomplete handling.
 
 Assertions MUST NOT encode hidden authority changes. An assertion may say that a candidate is eligible to be proposed for promotion; it cannot promote the candidate.
+
+Within one exact manifest/policy-body binding, `assertion_id` values MUST be unique. Every manifest `body_ref` MUST resolve inside the exact bound policy body to the assertion it claims to identify.
+
+The manifest is an index, not a replacement source of normative policy. Every blocking assertion in the exact policy body that can affect a declared object kind or decision function MUST be represented in the manifest. Omitting such an assertion is a manifest/body conformance failure and MUST NOT silently make the omitted rule inapplicable.
 
 A manifest that contains no assertions is not conforming merely because its identity fields validate.
 
@@ -204,7 +225,7 @@ A pack MAY expose logical decision functions such as:
 - `recommend_outcome`;
 - `recommend_next_action`.
 
-Each function MUST declare an evaluation class:
+Each declared decision function MUST have a unique `function_id`, a `body_ref` that resolves to its definition in the exact bound policy body, and one declared evaluation class.
 
 ### `DECLARATIVE`
 A direct application of stated pack policy to already-resolved facts.
@@ -220,7 +241,9 @@ The pack explicitly requires a designated human judgement before that policy gat
 
 A pack MUST NOT label a non-deterministic model judgement as `DETERMINISTIC` merely because the model is run with fixed parameters.
 
-Every executed function that materially contributes to the final status MUST be recorded separately in the evaluation result with its declared evaluation class and actual evaluator identity/version. A single top-level evaluator label MUST NOT erase mixed evaluation classes.
+Every decision function used to derive a policy outcome MUST be declared in the manifest and must resolve to the exact policy body. A manifest MUST NOT invent functions absent from the bound body, omit a function that materially determines an outcome, or relabel a body-defined judgement function as a stronger evaluation class.
+
+Every executed function MUST be recorded separately in the evaluation result. Mixed evaluation classes MUST remain visible; a single top-level evaluator label cannot replace per-function attribution.
 
 ## 11. Evaluation outcomes
 
@@ -264,9 +287,15 @@ evaluation:
   evaluation_id: string
   request_id: string
   authority_class: DERIVED | ADVISORY
-  pack_id: string
-  pack_version: string
-  policy_body_exact_version_or_digest: string
+  pack:
+    pack_id: string
+    pack_version: string
+    manifest_exact_version_or_digest: string
+    policy_body:
+      source_id: string
+      exact_source_version_or_digest: string
+      object_id_or_path: string
+      exact_object_version_or_digest: string
   evaluated_target: string
   evaluated_target_version: optional string
   candidate_version_or_digest: optional string
@@ -285,7 +314,8 @@ evaluation:
     - function_id: string
       declared_evaluation_class: DECLARATIVE | DETERMINISTIC | ADVISORY | HUMAN_REQUIRED
       actor_or_tool_id: string
-      evaluator_version: string
+      evaluator_version_or_judgement_digest: string
+      material_to_status: boolean
       output_version_or_digest: optional string
   overall_evaluation_class: DECLARATIVE | DETERMINISTIC | ADVISORY | HUMAN_REQUIRED
   occurred_at: timestamp
@@ -293,13 +323,19 @@ evaluation:
 
 Persisted output MUST preserve enough evidence to explain why the status was produced and MUST retain structured references to every material evidence item.
 
+`function_evaluations` MUST preserve every executed decision function, including functions that turn out not to affect the final status. `material_to_status` is true whenever that function affects an assertion result, unresolved item, status or recommendation.
+
+For a human judgement, `evaluator_version_or_judgement_digest` MUST identify the exact persisted judgement/review record or another immutable identity for the judgement actually used; a person's mutable name alone is not an exact evaluator version.
+
 The overall evaluation class is a conservative summary, not a source of authority:
 
-- if any material function evaluation is `ADVISORY`, the overall class MUST NOT be `DECLARATIVE` or `DETERMINISTIC`;
-- if unresolved `HUMAN_REQUIRED` judgement is necessary, status MUST be `HOLD` and the unresolved human requirement MUST remain explicit;
-- if a `HUMAN_REQUIRED` judgement is supplied and materially contributes, the human actor and the exact judgement/evaluator version MUST be recorded and the overall class MUST remain `HUMAN_REQUIRED`;
+- if any material function evaluation is `HUMAN_REQUIRED`, the overall class MUST be `HUMAN_REQUIRED`;
+- otherwise, if any material function evaluation is `ADVISORY`, the overall class MUST be `ADVISORY`;
 - `DETERMINISTIC` is permitted only when every material contributing function is `DECLARATIVE` or `DETERMINISTIC` and at least one material contribution is deterministic;
-- `DECLARATIVE` is permitted only when every material contributing function is declarative.
+- `DECLARATIVE` is permitted only when every material contributing function is declarative;
+- if required `HUMAN_REQUIRED` judgement is unavailable, status MUST be `HOLD` and the unresolved requirement MUST remain explicit.
+
+The Threadkeeper `authority_class` of the evaluation MUST be `ADVISORY` whenever material human/model judgement contributes (including completed `HUMAN_REQUIRED` judgement). Otherwise it MUST remain `DERIVED`.
 
 If different evaluators materially disagree, the conflict MUST remain inspectable. A later evaluation MUST NOT silently overwrite the earlier one.
 
@@ -316,6 +352,8 @@ Evidence requirements MUST distinguish:
 - evidence that is historical/legacy only and cannot establish current truth.
 
 Evidence requirements SHOULD identify required immutability level: stable record identity, exact source version, content digest, or exact binary digest as appropriate.
+
+Within one exact manifest/policy-body binding, `requirement_id` values MUST be unique. Every evidence-requirement `body_ref` MUST resolve inside the exact bound policy body. Every blocking evidence requirement in the policy body that applies to a declared object/change class MUST be represented in the manifest; omission is a manifest/body conformance failure, not permission to ignore the requirement.
 
 A manifest that contains no evidence requirements is not conforming merely because its identity fields validate.
 
@@ -354,8 +392,9 @@ The manifest's source-declared `pack_status` and any repository label, branch, r
 A future Core registration mechanism MUST record at least:
 
 - `pack_id`;
-- registered pack version;
-- exact bound policy-body version/digest;
+- registered logical pack version;
+- exact manifest source version/digest;
+- exact bound policy-body source/object version/digest;
 - source identity;
 - allowed policy domain / object kinds;
 - registration authority / decision event;
@@ -364,7 +403,7 @@ A future Core registration mechanism MUST record at least:
 
 Core registration/activation MUST be derived from governed Core state, never from the manifest's self-declared status.
 
-Changing a registered pack version or exact policy-body binding is itself a governed policy/configuration change.
+Changing a registered manifest or policy-body binding is itself a governed policy/configuration change, even if `pack_id` and `pack_version` strings are unchanged.
 
 Merely discovering a pack file, validating its manifest, seeing `pack_status: published`, or finding it in a trusted repository MUST NOT register or activate it.
 
@@ -399,19 +438,23 @@ Future executable-pack support, if ever authorised, requires a separate security
 
 A Policy Pack evaluation MUST return `HOLD` or an inspectable failure rather than successful-looking output when any material requirement is unresolved, including:
 
-- unknown pack identity or exact policy-body version;
+- unknown pack identity or exact manifest version;
+- unknown or mismatched exact policy-body binding;
 - invalid pack manifest;
 - manifest/body binding mismatch;
+- duplicate or unresolved manifest assertion/requirement/function identities;
+- omission of a blocking policy assertion, evidence requirement or material decision function from the manifest;
 - unsupported object kind;
 - ambiguous target identity;
 - missing mandatory evidence;
-- evidence lacking required source identity, authority class or exact version/digest;
+- evidence lacking required source identity, verified authority class or exact version/digest;
+- caller-supplied authority status that cannot be independently verified;
 - unresolved blocking conflict;
 - stale expected target state;
 - unavailable required evaluator;
 - unresolved required human judgement;
-- evaluator output that cannot be attributed to an exact evaluator version;
-- mixed evaluator classes whose material contributions cannot be preserved separately;
+- evaluator/judgement output that cannot be attributed to an exact version/digest;
+- mixed evaluator classes whose contributions cannot be preserved separately;
 - inability to preserve required provenance.
 
 ## 21. Policy Pack lifecycle
@@ -419,13 +462,17 @@ A Policy Pack evaluation MUST return `HOLD` or an inspectable failure rather tha
 ```text
 Author exact policy body + manifest binding
   ↓
-Validate manifest/body binding and contract conformance
+Validate manifest schema + manifest/body semantic conformance
   ↓
-Review exact source version
+Pin exact manifest and exact policy-body identities
+  ↓
+Review exact source versions
   ↓
 Authorised Core registration / acceptance if desired
   ↓
-Evaluate candidates with exact evidence
+Resolve verified evidence + exact target state
+  ↓
+Evaluate with per-function attribution
   ↓
 Persist non-authoritative evaluation
   ↓
@@ -453,7 +500,7 @@ The first intended conformance example is the candidate Vaelinya Illustration Po
 - current source-declared status: candidate;
 - Core registration status: not established by this contract or example.
 
-The example manifest binds those exact source identities into `policy_body`; the explanatory `notes` field is not relied on for the binding.
+The example manifest binds those exact source identities into `policy_body`; the explanatory `notes` field is not relied on for the binding. Its declared assertions, evidence requirements and decision functions are indexes into that exact body and MUST NOT advertise semantics absent from it.
 
 The example demonstrates the separation:
 
@@ -474,8 +521,8 @@ A future implementation of Policy Pack support MUST prove at least:
 ### PP-001 — PASS is not authority
 Run a pack evaluation that returns `PASS`; verify governed current state remains unchanged without a separate authorised decision.
 
-### PP-002 — Exact pack version
-Evaluate with policy body P0, move the mutable source reference to P1, and prove the P0 evaluation still identifies P0 exactly.
+### PP-002 — Exact pack inputs
+Evaluate using manifest M0 and policy body P0, move mutable source references to M1/P1, and prove the historical evaluation still identifies M0 and P0 exactly.
 
 ### PP-003 — Missing evidence fails closed
 Remove one mandatory evidence item and verify the result is `HOLD`, not `PASS`.
@@ -499,7 +546,7 @@ Remove all pack evaluators and external pack sources after accepted project stat
 Run an adapter action recommended by a pack; verify its output returns as candidate/evidence and does not become authoritative without the normal decision path.
 
 ### PP-010 — Vaelinya example mapping
-Map `vaelinya.illustration` inputs and outputs into this contract and verify no Vaelinya-specific semantic is required inside Core.
+Map `vaelinya.illustration` inputs and outputs into this contract and verify no Vaelinya-specific semantic is required inside Core and no function absent from the exact body is advertised by the manifest.
 
 ### PP-011 — Agreement does not transfer authority
 Produce a pack evaluation whose conclusion matches an independent `AUTHORITATIVE` record. Verify the evaluation remains `DERIVED` or `ADVISORY` and the authoritative record remains separately identifiable.
@@ -511,13 +558,22 @@ Set source-declared `pack_status` to `published`; verify the pack remains unregi
 Change the policy body without updating its exact manifest binding and verify conformance/evaluation fails closed.
 
 ### PP-014 — Mixed evaluator classes remain visible
-Use declarative and advisory functions in one evaluation. Verify each function retains its own evaluator attribution and the aggregate cannot be represented as declarative or deterministic.
+Use declarative and advisory functions in one evaluation. Verify each function retains its own evaluator attribution/materiality and the aggregate cannot be represented as declarative or deterministic.
 
 ### PP-015 — Evidence provenance is structured
-Attempt to persist an evaluation with only opaque source-version strings. Verify it is rejected/held until evidence identity, source identity, authority class and exact source version/digest are preserved.
+Attempt to persist an evaluation with only opaque source-version strings. Verify it is rejected/held until evidence identity, source identity, verified authority class and exact source version/digest are preserved.
 
 ### PP-016 — Pack cannot create filename authority
 Declare a filename-priority rule in a pack without any independently authoritative filename-to-identity mapping. Verify the filename does not become Threadkeeper-authoritative evidence.
+
+### PP-017 — Caller cannot self-assert authority
+Submit evidence labelled `AUTHORITATIVE` from an unverified caller/source. Verify the pack cannot rely on that label as authority and returns `HOLD` where the distinction is material.
+
+### PP-018 — Manifest omission cannot disable a gate
+Remove a blocking assertion/evidence requirement or material decision function from the manifest while leaving it normative in the exact policy body. Verify manifest/body conformance fails rather than treating the omitted rule as inactive.
+
+### PP-019 — Human-required judgement is exact and advisory
+Complete a `HUMAN_REQUIRED` policy function. Verify the exact persisted judgement identity is recorded, the overall evaluation class remains `HUMAN_REQUIRED`, and the Threadkeeper authority class of the evaluation is `ADVISORY` rather than authoritative.
 
 ## 24. Acceptance gate for v0.1
 
@@ -525,15 +581,17 @@ This contract is acceptable only if all of the following remain true:
 
 1. Core can remain completely ignorant of Vaelinya-specific concepts.
 2. A pack can express domain assertions and evidence requirements without gaining write authority.
-3. Pack evaluations preserve exact version/provenance and distinguish deterministic from advisory judgement.
+3. Pack evaluations preserve exact manifest, policy-body and evidence provenance and distinguish deterministic from advisory judgement.
 4. `PASS` can lead to a proposal but never directly to acceptance.
 5. Adapters remain separate from policy and authority.
 6. No arbitrary executable plugin mechanism is introduced by v0.1.
 7. Existing Threadkeeper authority/write contracts remain unchanged.
 8. Pack evaluation never inherits authority from its inputs or from agreement with authoritative records.
 9. Pack self-description never creates Core registration, activation or authority.
-10. The manifest is exactly bound to the normative policy body and enumerates its assertions and evidence-requirement identities.
+10. The manifest is exactly bound to the normative policy body and its indexes cannot omit blocking rules or invent functions.
 11. Mixed evaluator classes remain separately attributable and cannot be flattened into a stronger-looking aggregate.
-12. Persisted evaluation provenance is structured enough to identify source, authority class and exact immutable evidence version.
+12. Persisted evaluation provenance identifies source, verified authority class and exact immutable evidence version.
+13. Caller-supplied authority labels cannot create authoritative evidence.
+14. Human-required policy judgement remains distinct from Threadkeeper decision authority.
 
 If any implementation requires weakening those boundaries, the Policy Pack contract must be revised explicitly rather than treating the exception as implementation detail.
