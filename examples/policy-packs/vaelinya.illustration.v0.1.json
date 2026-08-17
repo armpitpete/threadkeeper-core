@@ -68,7 +68,7 @@
     {
       "function_id": "classify_change",
       "body_ref": "section:9/classify_change",
-      "evaluation_class": "DECLARATIVE",
+      "evaluation_class": "ADVISORY",
       "inputs": ["request", "target", "evidence"],
       "outputs": ["change_class", "findings"]
     },
@@ -89,7 +89,7 @@
     {
       "function_id": "recommend_outcome",
       "body_ref": "section:12/recommend_outcome",
-      "evaluation_class": "DECLARATIVE",
+      "evaluation_class": "ADVISORY",
       "inputs": ["evaluation", "change_class"],
       "outputs": ["recommendation"]
     }
@@ -105,5 +105,5 @@
     "candidate_binary",
     "legacy_reference"
   ],
-  "notes": "Non-authoritative conformance example. body_ref values are pack-local logical locators into the exact bound policy body; conformance must resolve them unambiguously. Inclusion does not register or activate the external pack."
+  "notes": "Non-authoritative conformance example. body_ref values are pack-local logical locators into the exact bound policy body; conformance must resolve them unambiguously. Evaluation classes are conservative: functions with any under-specified judgement are ADVISORY. Inclusion does not register or activate the external pack."
 }
