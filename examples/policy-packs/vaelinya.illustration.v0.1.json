@@ -1,0 +1,109 @@
+{
+  "schema_version": "urn:threadkeeper:schema:policy-pack-manifest:v0.1",
+  "pack_id": "vaelinya.illustration",
+  "pack_version": "0.1",
+  "pack_status": "candidate",
+  "domain": "illustration",
+  "authority_effect": "none",
+  "core_contract": "threadkeeper.policy-pack/v0.1",
+  "policy_body": {
+    "source_id": "github:armpitpete/vaelinya-canon",
+    "exact_source_version_or_digest": "git-commit:ba38c9e04b0360146eef84f6f414ff98a123d806",
+    "object_id_or_path": "14_Canon/People_and_Appearance/Vaelinya_Illustration_Policy_Pack_v0.1.md",
+    "exact_object_version_or_digest": "git-blob-sha1:215659c9915589572d776a036222a6cc59b8c4ff"
+  },
+  "object_kinds": [
+    "illustration.character_anchor",
+    "illustration.candidate_anchor",
+    "illustration.derived_scene",
+    "illustration.controlled_recolour",
+    "illustration.style_master",
+    "illustration.world_anchor",
+    "illustration.experimental",
+    "illustration.legacy_reference",
+    "illustration.production_test"
+  ],
+  "assertions": [
+    {"assertion_id": "VIPP-AUTH-001", "body_ref": "section:7/VIPP-AUTH-001"},
+    {"assertion_id": "VIPP-AUTH-002", "body_ref": "section:7/VIPP-AUTH-002"},
+    {"assertion_id": "VIPP-AUTH-003", "body_ref": "section:7/VIPP-AUTH-003"},
+    {"assertion_id": "VIPP-AUTH-004", "body_ref": "section:7/VIPP-AUTH-004"},
+    {"assertion_id": "VIPP-AUTH-005", "body_ref": "section:7/VIPP-AUTH-005"},
+    {"assertion_id": "VIPP-AUTH-006", "body_ref": "section:7/VIPP-AUTH-006"},
+    {"assertion_id": "VIPP-ID-001", "body_ref": "section:8/VIPP-ID-001"},
+    {"assertion_id": "VIPP-STYLE-001", "body_ref": "section:8/VIPP-STYLE-001"},
+    {"assertion_id": "VIPP-STYLE-002", "body_ref": "section:8/VIPP-STYLE-002"},
+    {"assertion_id": "VIPP-COLOUR-001", "body_ref": "section:8/VIPP-COLOUR-001"},
+    {"assertion_id": "VIPP-COLOUR-002", "body_ref": "section:8/VIPP-COLOUR-002"},
+    {"assertion_id": "VIPP-COLOUR-003", "body_ref": "section:8/VIPP-COLOUR-003"},
+    {"assertion_id": "VIPP-EDIT-001", "body_ref": "section:8/VIPP-EDIT-001"},
+    {"assertion_id": "VIPP-EDIT-002", "body_ref": "section:8/VIPP-EDIT-002"},
+    {"assertion_id": "VIPP-EDIT-003", "body_ref": "section:8/VIPP-EDIT-003"},
+    {"assertion_id": "VIPP-EDIT-004", "body_ref": "section:8/VIPP-EDIT-004"},
+    {"assertion_id": "VIPP-EXP-001", "body_ref": "section:8/VIPP-EXP-001"}
+  ],
+  "evidence_requirements": [
+    {
+      "requirement_id": "VIPP-EVID-CONTROLLED-RECOLOUR",
+      "body_ref": "section:14/controlled-recolour",
+      "applies_to": ["illustration.controlled_recolour"]
+    },
+    {
+      "requirement_id": "VIPP-EVID-DERIVED-SCENE",
+      "body_ref": "section:14/derived-scene",
+      "applies_to": ["illustration.derived_scene"]
+    },
+    {
+      "requirement_id": "VIPP-EVID-ANCHOR-REPAIR-REPLACEMENT",
+      "body_ref": "section:14/anchor-repair-replacement",
+      "applies_to": ["illustration.character_anchor", "illustration.candidate_anchor"]
+    },
+    {
+      "requirement_id": "VIPP-EVID-STYLE-MASTER-PROMOTION",
+      "body_ref": "section:14/style-master-promotion",
+      "applies_to": ["illustration.style_master"]
+    }
+  ],
+  "decision_functions": [
+    {
+      "function_id": "classify_change",
+      "body_ref": "section:9/classify_change",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["request", "target", "evidence"],
+      "outputs": ["change_class", "findings"]
+    },
+    {
+      "function_id": "resolve_identity",
+      "body_ref": "section:10/resolve_identity",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["candidate", "references"],
+      "outputs": ["identity_result"]
+    },
+    {
+      "function_id": "validate_candidate",
+      "body_ref": "section:11/validate_candidate",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["change_class", "candidate", "target", "references", "evidence"],
+      "outputs": ["evaluation"]
+    },
+    {
+      "function_id": "recommend_outcome",
+      "body_ref": "section:12/recommend_outcome",
+      "evaluation_class": "ADVISORY",
+      "inputs": ["evaluation", "change_class"],
+      "outputs": ["recommendation"]
+    }
+  ],
+  "evidence_roles": [
+    "character_anchor",
+    "style_master",
+    "world_anchor",
+    "character_sheet",
+    "colour_register",
+    "palette_reconciliation",
+    "production_test",
+    "candidate_binary",
+    "legacy_reference"
+  ],
+  "notes": "Non-authoritative conformance example. body_ref values are pack-local logical locators into the exact bound policy body; conformance must resolve them unambiguously. Evaluation classes are conservative: functions with any under-specified judgement are ADVISORY. Inclusion does not register or activate the external pack."
+}
