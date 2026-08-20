@@ -8,7 +8,7 @@ Normative terms **MUST**, **MUST NOT**, **SHOULD** and **MAY** are deliberate.
 
 ## 1. Purpose
 
-This addendum strengthens the Threadkeeper Policy Pack boundary against repository-controlled configuration or metadata acquiring execution authority merely because a repository is opened, discovered, indexed, parsed, evaluated or registered.
+This addendum strengthens the Threadkeeper Policy Pack boundary against repository-controlled configuration or metadata acquiring execution authority merely because a repository is discovered, cloned, checked out, materialised, opened, indexed, parsed, evaluated or registered.
 
 It does not change Threadkeeper Core's authority model. It makes an existing separation explicit at the repository/tool boundary:
 
@@ -27,22 +27,27 @@ This includes, without limitation:
 - README or instruction text;
 - generated or checked-in scripts;
 - filenames, directory names and repository labels;
+- repository-controlled checkout/materialisation metadata, including attributes, filters, smudge/clean rules or equivalent mechanisms;
 - adapter names, tool names and capability requests;
 - model or agent instructions embedded in repository content.
 
-Repository discovery, clone, checkout, opening, indexing, parsing, validation, registration or evaluation MUST NOT by itself convert any such content into a capability grant.
+Repository discovery, clone, checkout, materialisation, opening, indexing, parsing, validation, registration or evaluation MUST NOT by itself convert any such content into a capability grant.
 
-## 3. No ambient execution from repository discovery
+## 3. No ambient execution from repository lifecycle operations
 
-Merely discovering, opening, loading, indexing, parsing, validating, registering or evaluating repository-controlled content MUST NOT cause any of the following unless the relevant capability has been independently established outside that repository-controlled content:
+Merely discovering, cloning, checking out, materialising, opening, loading, indexing, parsing, validating, registering or evaluating repository-controlled content MUST NOT cause any of the following unless the relevant capability has been independently established outside that repository-controlled content:
 
-1. command, shell, interpreter, plugin, hook or arbitrary code execution;
-2. filesystem creation, modification, deletion, rename, permission change or other mutation outside explicitly authorised evaluation scratch state;
-3. network access or communication with an external service;
-4. credential, secret, token, key, cookie or identity-material access or use;
+1. command, shell, interpreter, plugin, hook, filter, smudge/clean process or arbitrary code execution;
+2. filesystem creation, modification, deletion, rename, permission change or other mutation outside explicitly authorised repository-fetch/materialisation state or inert evaluation scratch state;
+3. network access or communication with an external service beyond the independently authorised repository-fetch operation required to obtain the selected repository/source;
+4. credential, secret, token, key, cookie or identity-material access or use beyond credentials explicitly authorised for that repository-fetch operation;
 5. adapter invocation or external tool execution;
 6. creation, replacement, revocation, promotion, supersession or other authority-bearing Threadkeeper action;
 7. expansion of an existing grant's scope, target, credentials or permitted effects.
+
+Repository acquisition necessarily may require an independently authorised fetch operation: for example, contacting the selected forge/source and using credentials scoped to read that repository. That fetch grant authorises only the minimum network and credential use required to obtain the selected source. It MUST NOT be treated as authority for repository-content-triggered secondary network calls, helper/tool execution, filters, hooks, credential access, adapter actions or any other effect.
+
+Repository materialisation MUST therefore be inert with respect to repository-controlled effectful mechanisms unless each additional capability has been independently granted for the relevant actor/tool, target and scope.
 
 A repository-controlled statement requesting, naming, describing or declaring one of these actions is a request or evidence item only. It is not proof that the action is permitted.
 
@@ -81,31 +86,33 @@ No Serena-specific exception or implementation dependency is introduced. The rul
 
 ### PP-RC-001 — Hostile repository remains inert
 
-Construct or load a repository controlled entirely by an attacker. Its repository-controlled configuration and content MUST attempt all of the following during discovery/open/load/evaluation:
+Construct or load a repository controlled entirely by an attacker. Its repository-controlled configuration and content MUST attempt all of the following during discovery/clone/checkout/materialisation/open/load/evaluation:
 
 - execute a command or script;
-- mutate a filesystem path outside explicitly authorised inert evaluation scratch state;
-- make an outbound network request;
-- read or use a credential/secret/token;
+- trigger a repository-controlled filter, smudge/clean rule, hook or equivalent checkout/materialisation-time helper;
+- mutate a filesystem path outside explicitly authorised repository-fetch/materialisation state or inert evaluation scratch state;
+- make an outbound network request other than the independently authorised repository-fetch operation required to obtain the selected source;
+- read or use a credential/secret/token other than credentials explicitly authorised for that repository-fetch operation;
 - invoke an adapter or external tool;
 - perform an authority-bearing Threadkeeper operation;
 - broaden or manufacture a capability grant by declaring one in repository content.
 
-Run the normal repository discovery/open/index/parse/Policy Pack validation or evaluation path with no independently established grants for those effects.
+Run the normal repository discovery/clone/checkout/materialisation/open/index/parse/Policy Pack validation or evaluation path with only the minimum independent grant needed to fetch the selected repository/source and no independently established grants for repository-content-triggered effects.
 
 The test MUST verify:
 
-1. **zero command/code execution** occurs because of repository-controlled configuration;
-2. **zero unauthorised filesystem mutation** occurs;
-3. **zero unauthorised network access** occurs;
-4. **zero credential access or use** occurs;
-5. **zero adapter/tool invocation** occurs;
+1. **zero repository-content-triggered command/code execution** occurs, including filters, smudge/clean processes, hooks or equivalent mechanisms;
+2. **zero unauthorised filesystem mutation** occurs outside explicitly authorised repository-fetch/materialisation state or inert evaluation scratch state;
+3. **zero unauthorised network access** occurs beyond the selected repository/source fetch itself;
+4. **zero unauthorised credential access or use** occurs beyond credentials explicitly scoped to that repository fetch;
+5. **zero adapter/tool invocation** occurs because repository content requests or names it;
 6. **zero authority-bearing Threadkeeper state change** occurs;
 7. repository-declared grants, trusted-path claims, status labels or capability requests do not establish permission;
 8. attempted actions remain inspectable as inert requests/findings where relevant rather than being silently executed;
-9. independently granting one narrowly scoped capability enables only that capability and does not unlock the others.
+9. independently granting one narrowly scoped capability enables only that capability and does not unlock the others;
+10. the authority to fetch/materialise the selected repository does not imply authority for any secondary effect triggered by repository-controlled content.
 
-Any side effect in items 1–6 caused solely by repository discovery/open/load/evaluation is a conformance failure.
+Any side effect in items 1–6 caused solely by repository-controlled content during discovery/clone/checkout/materialisation/open/load/evaluation is a conformance failure.
 
 ## 8. Acceptance gate
 
@@ -113,6 +120,7 @@ This addendum is acceptable only if all of the following remain true:
 
 1. Threadkeeper Core's existing authority model requires no redesign.
 2. Repository-controlled content cannot bootstrap its own authority.
-3. Merely opening or evaluating a repository is safe with respect to execution, mutation, network, credentials and authority-bearing actions.
-4. Adapters and MCP/coding-agent bridges remain separately capability-governed.
-5. The hostile repository test is mandatory before arbitrary-repository MCP or coding-agent integration is considered production-ready.
+3. Merely discovering, cloning, checking out, materialising, opening or evaluating a repository is safe with respect to repository-content-triggered execution, mutation, secondary network access, credential use and authority-bearing actions.
+4. The network/credential grant required to fetch a selected repository remains narrow and cannot be reused as authority for repository-content-triggered effects.
+5. Adapters and MCP/coding-agent bridges remain separately capability-governed.
+6. The hostile repository test is mandatory before arbitrary-repository MCP or coding-agent integration is considered production-ready.
