@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v7
@@ -44,7 +44,7 @@ jobs:
         run: git diff --exit-code -- go.mod go.sum
 
   windows-git-environment-isolation:
-    runs-on: windows-latest
+    runs-on: [self-hosted, Windows]
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v7
