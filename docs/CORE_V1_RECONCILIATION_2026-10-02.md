@@ -283,3 +283,50 @@ Product observer baseline changed: NO
 Service activated: NO
 Authority writes enabled: NO
 ```
+
+## Post-reconciliation correctness closure — 2026-10-02
+
+The findings above are preserved as the state discovered during reconciliation. They are no longer current blockers.
+
+Subsequent protected repairs closed both findings:
+
+- **#76 / PR #79 — PASS / MERGED**
+  - strict shared RecoveryProof decoder/validator;
+  - incomplete, null, unknown, duplicate and trailing proof content fails closed;
+  - exact discovered malformed-equivalence regression closed;
+  - merge commit: `f1cb0a8309cd397227f767d786d1c80c2cd073d7`.
+
+- **#77 / PR #80 — PASS / MERGED**
+  - Core v1 authoritative history is closed-world;
+  - unknown committed paths fail with `INTEGRITY_FAILURE` across the complete history;
+  - future namespace extension requires a reviewed format/migration contract;
+  - merge commit: `deb2cd42a69f61f30c2588b9cea18c75088aed97`.
+
+Final exact-main read-only compatibility evidence at code-main `deb2cd42a69f61f30c2588b9cea18c75088aed97`:
+
+- preserved production Gate B ledger bundle remained unchanged;
+- Genesis/head reproduced exactly as `73fa0e66df2ae80b4b2a04247112470f6bb8e451`;
+- actor-policy root SHA-256 reproduced exactly as `803e61858fe1dfae96b357845bed1b10644a5028801d307533fcf312d8b4a40a`;
+- replay SHA-256 reproduced exactly as `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
+- identical complete RecoveryProofs compared equivalent;
+- malformed/incomplete RecoveryProof comparison failed with `RECOVERY_PROOF_INVALID`.
+
+Current disposition:
+
+```text
+CORE V1 NEXT-RELEASE CORRECTNESS GATES
+
+#76 RecoveryProof strict comparison: PASS
+#77 Closed-world authoritative ledger: PASS
+
+Production binary: UNCHANGED
+Production ledger: UNCHANGED
+Product observer profile: UNCHANGED
+Core service: NOT ACTIVATED
+Authority writes: DISABLED
+
+NEXT:
+separately protected Core v1 read-only release-candidate sequence
+```
+
+This closure does not authorize release-candidate deployment or production promotion.
