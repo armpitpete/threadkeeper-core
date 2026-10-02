@@ -1,5 +1,9 @@
 # Core Assurance Programme v0.1
 
+## Reconciled status
+
+The original programme table records the implementation programme as it evolved. Production Fresh Genesis, the production load/resource envelope, independent-secondary restore, and the consolidated quarantine/CAS review were subsequently completed. Current production/release status is normative in `IMPLEMENTATION_STATUS.md`, `docs/CORE_V1_RECONCILIATION_2026-10-02.md`, and `docs/CORE_V1_RELEASE_BOUNDARY.md`.
+
 This programme implements the whole-project review recommendations while distinguishing installed primitives from protected production integration.
 
 | Capability | Implementation | State |
@@ -16,8 +20,8 @@ This programme implements the whole-project review recommendations while disting
 | Confidentiality/retention | `internal/access` | installed model/catalog enforcement; actor auth/storage enforcement pending |
 | Decision dissent/reopening | `internal/decision`, `internal/proposal`, `internal/reviewbundle` | installed non-authoritative review path |
 | Fork recovery | `internal/recovery` | classifier installed; operator resolution pending |
-| Destructive restore proof | `internal/ledger/recovery_proof.go` + tests/CLI | installed; independent remote-backup drill pending |
-| Candidate quarantine | `internal/quarantine` | private store installed; writer integration remains a separate CAS-changing review gate |
+| Destructive restore proof | `internal/ledger/recovery_proof.go` + tests/CLI plus `internal/restoreproof` | installed; Issue #51 Gate B independent-secondary production restore **PASS** |
+| Candidate quarantine | quarantine + ledger candidate-write integration | integrated; final consolidated boundary independently **PASSED** Issue #36 |
 | Policy simulation | `internal/simulation` | deterministic impact comparison installed |
 | Replay checkpoints | `internal/checkpoint` | digest verification installed; replay acceleration optional/pending |
 | External witness | `internal/witness` | signing/verification installed; deployment/key service optional |
@@ -29,6 +33,6 @@ This programme implements the whole-project review recommendations while disting
 | Incident response | `internal/incident` + runbook | installed lifecycle |
 | Key lifecycle | `internal/keylifecycle` | installed lifecycle; secret backend pending |
 | Reference client | CLI commands + contract | executable read/review client installed |
-| Load safety | concurrent governance tests + `internal/service.Limiter` | core semantic tests installed; final resource/performance envelope pending |
+| Load safety | concurrent governance tests + `internal/service.Limiter` + `ledger-load-proof` | code/reference proof installed; Issue #51 Gate A production envelope **PASS** |
 
 Public authority writes remain disabled throughout this programme. Optional Recall remains a separate later layer.

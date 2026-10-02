@@ -21,7 +21,7 @@ The internal writer remains behind the hard public gate:
 
 `AUTHORITY_WRITES_DISABLED`
 
-The CAS repair lane was merged to `main` by explicit owner override after exact-head conformance passed; a genuinely independent full Issue #9 PASS was not recorded before that merge. That exception is preserved as governance evidence and does not enable public authority writes. The assurance layer adds explicit genesis, threat boundaries, source escrow policy, bitemporal time, coverage/completeness, confidentiality/retention, dissent/reopening context, fork recovery, candidate quarantine primitives, policy simulation, replay checkpoints, external witness verification, federation, build provenance and operability models.
+The CAS repair lane was merged to `main` by explicit owner override after exact-head conformance passed; a genuinely independent full Issue #9 PASS was not recorded before that merge. That historical exception is preserved. The later consolidated quarantine/CAS boundary was independently hostile-reviewed and **PASSED** under Issue #36 at exact merged commit `fde19f4c03a1915f7d26da493593566a6017bc49`. None of that enables public authority writes. The assurance layer adds explicit genesis, threat boundaries, source escrow policy, bitemporal time, coverage/completeness, confidentiality/retention, dissent/reopening context, fork recovery, candidate quarantine primitives, policy simulation, replay checkpoints, external witness verification, federation, build provenance and operability models.
 
 ## Planes
 
@@ -43,4 +43,6 @@ Threadkeeper Core
 
 AI systems are clients. They may retrieve evidence, derive material and submit proposals. They receive no implicit privilege and cannot promote their own output to authority.
 
-See `ARCHITECTURE.md`, `THREADKEEPER_STANDARD.md`, `docs/assurance/CORE_ASSURANCE_PROGRAMME_V0.1.md`, `docs/conformance/`, and `docs/decisions/` for the normative architecture and gates.
+Current production/release status is reconciled in `IMPLEMENTATION_STATUS.md` and `docs/CORE_V1_RECONCILIATION_2026-10-02.md`. The normative boundary for any future Core v1 read-only binary replacement is `docs/CORE_V1_RELEASE_BOUNDARY.md`.
+
+See `ARCHITECTURE.md`, `THREADKEEPER_STANDARD.md`, `docs/assurance/CORE_ASSURANCE_PROGRAMME_V0.1.md`, `docs/conformance/`, and `docs/decisions/` for the architecture and supporting contracts.

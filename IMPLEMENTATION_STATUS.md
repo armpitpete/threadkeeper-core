@@ -87,7 +87,7 @@ Installed:
 - load-safety evidence matrix and production runbook;
 - checkpoint acceleration clarified as conditional/optional: full replay remains authoritative while acceleration is disabled.
 
-The initial production envelope `threadkeeper-core-production-initial-v1` is accepted in Issue #51: 4 concurrent workers × 25 iterations, 128 MiB/64 MiB peak/settled heap-growth ceilings, 32/8 goroutine-growth ceilings, 64/16 open-handle-growth ceilings, with the open-handle metric mandatory. The read-only production measurement itself remains OPEN; acceptance of the envelope is not a load PASS.
+The initial production envelope `threadkeeper-core-production-initial-v1` was accepted and then measured on the dedicated IntoVPS production host under Issue #51. Gate A **PASSED** on 2026-08-20: 4 concurrent workers × 25 iterations completed all 100 operations; 991 resource samples reported zero unavailable open-handle samples; peak growth was 2,914,064 heap bytes / 19 goroutines / 29 open handles; settled growth was 45,024 heap bytes / 0 goroutines / 0 open handles; `passed:true`, exit status 0 and empty stderr were preserved. Issue #65 was later closed as stale/duplicative of this evidence.
 
 ## Restore-verification machinery installed
 
@@ -104,13 +104,13 @@ Installed:
 - hostile regressions for malformed/contradictory provenance and altered authority state;
 - operational runbook requiring real external custody/provider/operator evidence.
 
-This machinery does not itself prove that a backup is genuinely independently operated. Issue #51 keeps the destructive production restore behind a new explicit owner authorization and external evidence review.
+The machinery itself deliberately reports operational independence as `requires_external_review`. Issue #51 subsequently completed the protected production Gate B: a backup was captured from IntoVPS, preserved under dedicated OCI secondary custody, restored only after the primary authority path was made unavailable, and the restored ledger reproduced the exact accepted Core RecoveryProof. External-independence review recorded **Gate B PASS** on 2026-08-20 while preserving the documented caveats about root access and common human ownership.
 
-## Core v1 E2E acceptance candidate under review
+## Core v1 E2E code-side/reference acceptance merged
 
-Issue #50 / PR #52 is the final code-side/reference E2E lane. The disposable test sequence combines Fresh Genesis, ledger-derived actor policy, exact Ed25519 authentication, hard service-gate rejection, real quarantine/CAS acceptance, a stale competing H0 candidate with no rebase, restart/retry/idempotency conflict, and the merged restore-verification path.
+Issue #50 / PR #52 merged to protected `main` as `d39feadbe7c01258b2d36ff5d0675d994d991c68` after exact-head conformance and hostile review. The disposable sequence combines Fresh Genesis, ledger-derived actor policy, exact Ed25519 authentication, hard service-gate rejection, real quarantine/CAS acceptance, stale competing-head rejection, restart/retry/idempotency conflict and the merged restore-verification path.
 
-The candidate emits machine-readable `CORE_V1_E2E_ACCEPTANCE` evidence and ends with `authority_writes_enabled: false`. Its local temporary backup/restore is implementation evidence only, not independent-secondary operational evidence.
+The accepted test emits machine-readable `CORE_V1_E2E_ACCEPTANCE` evidence and requires `authority_writes_enabled: false`. Its local temporary restore remains code/reference evidence; the separate real independent-secondary operational gate was later completed under Issue #51.
 
 ## Installed assurance/read capabilities
 
@@ -143,17 +143,27 @@ Historical governance remains explicit: PR #11 was owner-authorised without a ge
 
 The final consolidated quarantine/CAS repair merged as `fde19f4c03a1915f7d26da493593566a6017bc49`. Independent hostile re-review Issue #36 **PASSED** that exact commit, including independently constructed real-Git CAS/ref-lock attacks. That correctness gate is closed subject to the separately proved production filesystem-ownership boundary.
 
-## Remaining protected release work
+## Production operational acceptance and next release boundary
 
-1. complete review/integration of Issue #50 / PR #52 E2E machinery;
-2. run the accepted `threadkeeper-core-production-initial-v1` envelope through the read-only production `ledger-load-proof` and preserve its exact evidence under Issue #51;
-3. select and evidence a genuinely independent secondary custody boundary, then obtain new explicit authorization before any destructive production restore/replacement and prove exact recovery equivalence under Issue #51;
-4. only after the production operational gates pass, prepare and separately review service activation while `AUTHORITY_WRITES_DISABLED` remains closed;
-5. only after all release gates pass consider removal of `AUTHORITY_WRITES_DISABLED` through a separate explicit decision and review.
+Issue #51 records **Core v1 production operational acceptance with authority writes disabled**:
 
-No public authority-write transport or long-running production service is currently enabled.
+- Gate A production load/resource proof: **PASS**;
+- Gate B independent-secondary destructive restore and exact Core equivalence: **PASS**;
+- Gate C direct Core service activation: **N/A by accepted architecture / PASS by review** because Core v1 remains intentionally CLI/library-only.
 
-Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and GUI unless separately selected.
+The accepted deployed profile remains source `46f476fd4e0a346e45034310c423f6c1cd592f65`, binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`, with no long-running Core service and no public authority-write transport.
+
+Protected source `main` later advanced through restore-verification/E2E work and optional MCP/Policy Pack contracts. That source advance is not an automatic production update. The downstream `armpitpete/threadkeeper` product deliberately binds its Core observer to the accepted deployed profile.
+
+For any future Core binary replacement, the normative release boundary is `docs/CORE_V1_RELEASE_BOUNDARY.md`. Current next-release blockers identified by the 2026-10-02 reconciliation are:
+
+1. Issue #76 — standalone `recovery-compare` must reject incomplete/malformed RecoveryProof inputs before equivalence comparison;
+2. Issue #77 — explicitly decide and enforce/document the authoritative-ledger namespace policy for unknown committed paths;
+3. exact protected-main conformance/build/provenance and downstream product-profile reconciliation required by the release boundary.
+
+Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, GUI, MCP product transport and Policy/Specialist Pack product rollout unless separately selected.
+
+Current reconciliation: `docs/CORE_V1_RECONCILIATION_2026-10-02.md`.
 
 ## Write status
 

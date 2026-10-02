@@ -1,5 +1,11 @@
 # Core v1 End-to-End Acceptance v1
 
+## Current status
+
+PR #52 merged the code-side/reference acceptance lane to protected `main` as `d39feadbe7c01258b2d36ff5d0675d994d991c68`.
+
+The production gates that were deliberately left separate by this test were later reconciled under Issue #51: production load Gate A **PASS**, independent-secondary restore Gate B **PASS**, and direct Core service activation Gate C **N/A by accepted CLI/library-only architecture / PASS by review**. `AUTHORITY_WRITES_DISABLED` remains mandatory.
+
 Issue #50 closes the final **code-side/reference** Core v1 E2E acceptance gap. It does not activate production service operation and it does not enable authority writes.
 
 ## Deterministic reference sequence
@@ -47,4 +53,4 @@ The local backup is deliberately **not** claimed as independent-secondary operat
 
 No production `enabled` boolean, environment override, test mode or alternate exported write path is introduced. `AUTHORITY_WRITES_DISABLED` remains mandatory.
 
-Passing this lane closes E2E machinery/reference conformance only. Production load measurement, genuine independent-secondary recovery, service activation and any future write-enablement decision remain separate protected gates.
+Passing this lane closed E2E machinery/reference conformance only. At merge time, production load measurement, genuine independent-secondary recovery, service activation and any future write-enablement decision remained separate protected gates. Issue #51 later closed the first two and resolved direct Core service activation as not applicable by architecture. Future write enablement remains a separate protected decision and is not authorised.

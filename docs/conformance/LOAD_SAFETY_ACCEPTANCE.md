@@ -1,5 +1,11 @@
 # Load Safety Acceptance
 
+## Current production status
+
+The production load gate described below was subsequently executed on the dedicated IntoVPS production host and **PASSED** under Issue #51 on 2026-08-20 using the accepted `threadkeeper-core-production-initial-v1` envelope. The accepted production profile remains source `46f476fd4e0a346e45034310c423f6c1cd592f65` with `AUTHORITY_WRITES_DISABLED`.
+
+For any future Core binary replacement, this contract becomes active again: repository/reference evidence does not substitute for a fresh production-shaped measurement of the replacement candidate.
+
 Performance is acceptable only if load cannot change authority semantics.
 
 Before a public write interface is enabled, evidence must demonstrate:
@@ -23,7 +29,7 @@ Core must provide repeatable tests and machine-readable proof machinery that exe
 
 ### Production deployment envelope
 
-The final production load gate remains open until the actual production-shaped deployment declares its real concurrency/workload/resource ceilings and runs the same proof machinery against the actual ledger/storage/service environment. The recorded evidence must identify the exact Core build, ledger/recovery identity and supplied envelope.
+For the accepted production profile, the production load gate is closed PASS by Issue #51 evidence. A future replacement build must again declare/review its production-shaped concurrency/workload/resource ceilings and run the same proof machinery against the actual or equivalently production-shaped ledger/storage environment. The recorded evidence must identify the exact Core build, ledger/recovery identity and supplied envelope.
 
 No reference CI result may be extrapolated into an unmeasured production capacity claim.
 
