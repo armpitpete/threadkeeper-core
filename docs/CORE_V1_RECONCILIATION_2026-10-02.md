@@ -131,11 +131,11 @@ PR #10 was a review-only frozen snapshot whose own contract prohibited merge; it
 
 PR #13's Git-alternates repair is also superseded. Current `main` rejects `objects/info/alternates` and `objects/info/http-alternates`, and Issue #36 explicitly re-tested repository-local alternates. PR #13 is closed unmerged.
 
-### Current release-status correction
+### Release-status correction at reconciliation time
 
-Issue #54 remains the Core-side status-correction gate until the reconciliation/status documentation PR is merged.
+At reconciliation time, Issue #54 remained the Core-side status-correction gate pending the reconciliation/status documentation merge. PR #78 later merged and Issue #54 closed.
 
-### Newly demonstrated next-release decisions
+### Newly demonstrated next-release decisions at reconciliation time
 
 - **#76 — Harden recovery-compare against incomplete RecoveryProof inputs.**
   - live hostile case proved that incomplete documents can compare as equivalent in the standalone command;
@@ -223,13 +223,13 @@ The deployed `46f476fd...` profile is **PRODUCTION READ-ONLY ACCEPTED**.
 
 ### Standalone RecoveryProof comparison
 
-Current standalone `recovery-compare` validates raw JSON syntax but does not require a complete RecoveryProof before struct comparison. Issue #76 owns the required next-release repair.
+At reconciliation time, standalone `recovery-compare` validated raw JSON syntax but did not require a complete RecoveryProof before struct comparison. Issue #76 was opened for the required next-release repair.
 
 The strict `restoreproof.DecodeRecoveryProof` path already requires the full closed proof shape and is the accepted restore-verification path.
 
 ### Ledger namespace
 
-Current Core strongly enforces known semantic paths but does not currently fail merely because an unrelated path exists in history. Issue #77 owns the contract decision.
+At reconciliation time, Core strongly enforced known semantic paths but did not fail merely because an unrelated path existed in history. Issue #77 was opened for the contract decision.
 
 No production ledger mutation was performed to establish this finding; testing used a disposable ledger.
 
@@ -247,7 +247,7 @@ There is **no immediate production-update requirement merely because Core source
 
 The current deployed profile remains operationally accepted and is intentionally bound by the product observer.
 
-For any future Core binary replacement:
+At reconciliation time, the planned sequence for a future Core binary replacement was:
 
 1. begin from current protected-main lineage;
 2. close #76;
@@ -274,7 +274,7 @@ Current production Core:
   production read-only acceptance: PASS
 
 Next Core release base: current protected-main lineage
-Next-release blockers: #76, #77, exact release-candidate gates
+Next-release blockers at reconciliation time: #76, #77, exact release-candidate gates
 Deferred: MCP/Policy Pack/Specialist Pack/research unless a proven authority-kernel dependency appears
 
 Production binary changed: NO
