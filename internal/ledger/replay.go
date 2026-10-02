@@ -98,6 +98,9 @@ func Replay(ctx context.Context, r *gitledger.Reader) (*ReplayManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := validateAuthoritativeLedgerNamespace(ctx, r, history); err != nil {
+		return nil, err
+	}
 	genesisRoot, genesisCommit, rootPolicyDoc, err := validateGenesisHistory(ctx, r, history)
 	if err != nil {
 		return nil, err
