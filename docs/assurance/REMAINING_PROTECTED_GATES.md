@@ -69,14 +69,21 @@ The fact that protected source `main` later advanced does not itself supersede t
 
 A future Core binary replacement must follow `docs/CORE_V1_RELEASE_BOUNDARY.md`.
 
-Current reconciliation blockers are:
+The 2026-10-02 correctness blockers are closed in protected-main lineage:
 
-1. Issue #76 — strict standalone RecoveryProof comparison;
-2. Issue #77 — authoritative-ledger namespace policy;
-3. exact-head conformance/build provenance;
-4. production-ledger-copy compatibility proof;
-5. downstream `armpitpete/threadkeeper` frozen Core-profile update;
-6. side-by-side live read-only equivalence before promotion.
+- Issue #76 — strict standalone RecoveryProof comparison — **PASS / MERGED** in PR #79 as `f1cb0a8309cd397227f767d786d1c80c2cd073d7`;
+- Issue #77 — closed-world authoritative-ledger namespace — **PASS / MERGED** in PR #80 as `deb2cd42a69f61f30c2588b9cea18c75088aed97`;
+- fresh post-merge conformance run `37065581798` on `deb2cd42a69f61f30c2588b9cea18c75088aed97` passed both required jobs.
+
+Remaining future binary-replacement gates are:
+
+1. exact protected-main release-candidate conformance and build provenance;
+2. production-ledger-copy compatibility proof;
+3. downstream `armpitpete/threadkeeper` frozen Core-profile update;
+4. side-by-side live read-only equivalence before promotion;
+5. separately authorised protected promotion.
+
+No item above authorises starting the release-candidate deployment phase before repository-status reconciliation itself is merged and accepted.
 
 ## Final write-enable decision
 
