@@ -19,6 +19,14 @@ The durable layer exists to preserve the minimum information that must survive c
 
 The selected v1 durable architecture is a **Git-backed governance ledger containing canonical JSON records**.
 
+## Implemented Core v1 namespace boundary
+
+The logical layout below records the broader architecture vocabulary. It is **not** an allowlist for the current implementation.
+
+The implemented Core v1 authoritative ledger is closed-world and accepts only the committed path classes defined by `docs/assurance/LEDGER_NAMESPACE_CONTRACT_V1.md`: the exact Genesis root, exact initial actor-policy root, versioned schemas, versioned reducer bindings and durable events. Conceptual categories such as `config/sources/`, `config/relationships/`, `config/migrations/` and committed `checkpoints/` are not accepted v1 tree namespaces merely because they appear in this architecture document.
+
+Any future namespace requires a separately reviewed format/migration contract. Older v1 binaries fail closed on unknown committed paths.
+
 ## 2. Logical architecture
 
 ```text
