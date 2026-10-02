@@ -1,40 +1,19 @@
 package restoreproof
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 
 	"github.com/armpitpete/threadkeeper-core/internal/canonicaljson"
 	"github.com/armpitpete/threadkeeper-core/internal/gitledger"
 	"github.com/armpitpete/threadkeeper-core/internal/ledger"
-	"github.com/armpitpete/threadkeeper-core/internal/strictjson"
+	"github.com/armpitpete/threadkeeper-core/internal/recoveryproof"
 )
 
 const OperationalIndependenceRequiresExternalReview = "requires_external_review"
-
-var requiredRecoveryProofFields = []string{
-	"ledger_commit",
-	"authoritative_ref",
-	"git_object_format",
-	"genesis_commit",
-	"project_id",
-	"ledger_id",
-	"genesis_content_sha256",
-	"actor_policy_version",
-	"actor_policy_root_content_sha256",
-	"history_commit_count",
-	"event_count",
-	"reducer_binding_count",
-	"governed_record_count",
-	"governed_records_sha256",
-	"replay_sha256",
-}
 
 type Report struct {
 	CoreEquivalencePassed         bool                 `json:"core_equivalence_passed"`
@@ -57,39 +36,7 @@ type Report struct {
 }
 
 func DecodeRecoveryProof(raw []byte) (ledger.RecoveryProof, error) {
-	if err := strictjson.Validate(raw); err != nil {
-		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: %w", err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
-		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: decode fields: %w", err)
-	}
-	for _, name := range requiredRecoveryProofFields {
-		value, ok := fields[name]
-		if !ok {
-			return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: required field %q is missing", name)
-		}
-		if bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-			return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: required field %q must not be null", name)
-		}
-	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	var proof ledger.RecoveryProof
-	if err := decoder.Decode(&proof); err != nil {
-		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: decode: %w", err)
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: trailing JSON value")
-		}
-		return ledger.RecoveryProof{}, fmt.Errorf("RECOVERY_PROOF_INVALID: trailing data: %w", err)
-	}
-	if err := ValidateRecoveryProof(proof); err != nil {
-		return ledger.RecoveryProof{}, err
-	}
-	return proof, nil
+	return recoveryproof.Decode(raw)
 }
 
 func RecoveryProofSHA256(proof ledger.RecoveryProof) (string, error) {
