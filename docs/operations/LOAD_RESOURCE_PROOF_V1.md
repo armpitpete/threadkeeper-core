@@ -1,5 +1,11 @@
 # Production Load / Resource Proof v1
 
+## Accepted production run
+
+Issue #51 executed this runbook against the accepted IntoVPS production profile on 2026-08-20. The frozen `threadkeeper-core-production-initial-v1` envelope **PASSED** with 100/100 completed operations, 991 resource samples, zero unavailable open-handle samples, all measured growth inside the accepted ceilings, `passed:true`, exit 0 and empty stderr.
+
+That PASS is bound to source `46f476fd4e0a346e45034310c423f6c1cd592f65` and the accepted production authority state. Any future binary/resource/storage/concurrency change that is material to this proof requires a fresh run.
+
 This runbook uses the same read-only proof machinery exercised in repository conformance. It does not choose a production envelope automatically and it does not enable authority writes.
 
 ## Required deployment facts
