@@ -178,15 +178,11 @@ func TestReplayRejectsNonRegularRootGenesis(t *testing.T) {
 		t.Skip("symlink fixture is POSIX-only")
 	}
 	work := rawWorkRepo(t)
-	payload := filepath.Join(work, "genesis-payload.json")
-	if err := os.WriteFile(payload, freshGenesisFixture(t, nil), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	link := filepath.Join(work, filepath.FromSlash(genesis.LedgerPath))
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink("../../genesis-payload.json", link); err != nil {
+	if err := os.Symlink("../../missing-genesis-payload.json", link); err != nil {
 		t.Fatal(err)
 	}
 	commitAll(t, work, "symlink Genesis")
