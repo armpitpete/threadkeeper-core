@@ -70,6 +70,24 @@ func TestReplayRejectsPollutedGenesisCommit(t *testing.T) {
 	requireNamespaceReplayFailure(t, cloneBare(t, work), "stray.txt")
 }
 
+func TestReplayRejectsRenameFromKnownToUnknownNamespace(t *testing.T) {
+	work := newWorkRepo(t)
+	writeSchema(t, work)
+	commitAll(t, work, "add accepted schema")
+
+	from := filepath.Join(work, "config", "schemas", "event", "test-v1.json")
+	to := filepath.Join(work, "config", "sources", "future.json")
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(from, to); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, work, "rename known schema into unknown namespace")
+
+	requireNamespaceReplayFailure(t, cloneBare(t, work), "config/sources/future.json")
+}
+
 func TestReplayRejectsUnknownPathEvenIfLaterDeleted(t *testing.T) {
 	work := newWorkRepo(t)
 	writeRawLedgerPath(t, work, "stray.txt", []byte("stray"))
