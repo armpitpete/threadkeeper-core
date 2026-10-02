@@ -133,7 +133,7 @@ PR #13's Git-alternates repair is also superseded. Current `main` rejects `objec
 
 ### Current release-status correction
 
-Issue #54 remains the Core-side status-correction gate until the reconciliation/status documentation PR is merged.
+Issue #54 is closed as completed. Its Core-side implementation-status correction is incorporated in the protected source lineage; it is not a current release blocker.
 
 ### Newly demonstrated next-release decisions — resolved after reconciliation
 
