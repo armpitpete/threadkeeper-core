@@ -47,6 +47,9 @@ func validateAuthoritativeLedgerPath(path string) error {
 		return nil
 	}
 	if strings.HasPrefix(path, "events/") {
+		if !strings.HasSuffix(path, ".json") {
+			return fmt.Errorf("INTEGRITY_FAILURE: durable event file %q is not JSON", path)
+		}
 		if err := gitledger.ValidateEventPath(path); err != nil {
 			return fmt.Errorf("INTEGRITY_FAILURE: invalid Core v1 event path %q: %w", path, err)
 		}
