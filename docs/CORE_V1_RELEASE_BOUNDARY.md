@@ -64,24 +64,28 @@ These do not block Core v1 read-only release unless a later reviewed dependency 
 
 MCP interoperability and Policy Pack contracts may remain in the source repository as non-blocking architecture/contracts. Their presence does not widen the Core production release boundary.
 
-## Mandatory next-release blockers
+## Resolved next-release correctness prerequisites
 
-Before any new Core binary may be called a read-only release candidate:
+Before any new Core binary may be called a read-only release candidate, the #76 and #77 correctness contracts must be present in its exact protected lineage.
 
-1. **Issue #76 — strict standalone RecoveryProof comparison**
-   - incomplete/malformed proofs must never compare as equivalent;
-   - the complete proof shape must be validated before comparison;
+Current protected-main lineage satisfies both:
+
+1. **Issue #76 — strict standalone RecoveryProof comparison: PASS / MERGED**
+   - PR #79 merged as `f1cb0a8309cd397227f767d786d1c80c2cd073d7`;
+   - incomplete/malformed proofs fail before equivalence comparison;
    - valid identical proofs still pass;
    - tampered valid proofs still fail.
 
-2. **Issue #77 — authoritative-ledger namespace policy**
-   - choose an explicit v1 contract for unknown committed paths;
-   - if closed-world, implement deterministic unknown-path rejection and hostile regression;
-   - if inert-content tolerance, prove/document why later software cannot silently promote previously inert content into authority.
+2. **Issue #77 — authoritative-ledger namespace policy: PASS / MERGED**
+   - PR #80 selected and enforced the closed-world Core v1 ledger namespace;
+   - merged as `deb2cd42a69f61f30c2588b9cea18c75088aed97`;
+   - unknown committed paths fail deterministically, including paths later deleted and mixed valid/unknown commits.
 
 3. **Repository status must be internally consistent**
-   - `IMPLEMENTATION_STATUS.md` and protected-gate docs must describe the accepted production state;
-   - no stale issue may be used as evidence that an already-passed production gate is still open.
+   - `IMPLEMENTATION_STATUS.md`, this boundary, the reconciliation record, release checklist and protected-gate status must not describe #76/#77 as unresolved current blockers;
+   - historical findings may remain only when clearly marked as superseded/resolved.
+
+Fresh post-merge conformance run `37065581798` on `deb2cd42a69f61f30c2588b9cea18c75088aed97` passed both required jobs. No production binary, ledger, product observer profile, service or authority-write state changed.
 
 ## Code-side candidate gates
 
