@@ -10,22 +10,22 @@ Every row requires one of `PASS`, `FAIL`, or `N/A`, plus exact evidence. A blank
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| A1 | Protected source base identified by exact SHA |  |  |
-| A2 | Current production source/binary/profile recorded |  |  |
-| A3 | Downstream `armpitpete/threadkeeper` Core-profile impact enumerated |  |  |
-| A4 | No unresolved contradictory current-status document |  |  |
-| A5 | Optional/deferred work cannot silently become a release blocker |  |  |
+| A1 | Protected source base identified by exact SHA | **PASS** | reconciliation PR #78; correctness closure code-main `deb2cd42a69f61f30c2588b9cea18c75088aed97` |
+| A2 | Current production source/binary/profile recorded | **PASS** | deployed source `46f476fd...`; binary SHA-256 `7d823828...`; Issue #51 / reconciliation record |
+| A3 | Downstream `armpitpete/threadkeeper` Core-profile impact enumerated | **PASS** | `docs/CORE_V1_RECONCILIATION_2026-10-02.md`; product observer remains deliberately bound to current accepted profile |
+| A4 | No unresolved contradictory current-status document | **PASS** | 2026-10-02 post-#80 contradiction scan and status/protected-gate closure update |
+| A5 | Optional/deferred work cannot silently become a release blocker | **PASS** | #70/#74 remain explicitly deferred/non-blocking; release boundary excludes optional product lanes |
 
 ## B. Release-blocking correctness
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| B1 | Issue #76 strict RecoveryProof comparison contract closed |  |  |
-| B2 | Incomplete/malformed RecoveryProof regression fails closed |  |  |
-| B3 | Valid identical RecoveryProof comparison passes |  |  |
-| B4 | Tampered valid RecoveryProof comparison fails |  |  |
-| B5 | Issue #77 ledger namespace policy explicitly accepted |  |  |
-| B6 | #77 implementation/regressions pass for the accepted policy |  |  |
+| B1 | Issue #76 strict RecoveryProof comparison contract closed | **PASS** | Issue #76 closed; PR #79 merged as `f1cb0a8309cd397227f767d786d1c80c2cd073d7` |
+| B2 | Incomplete/malformed RecoveryProof regression fails closed | **PASS** | exact discovered `{}` vs `{"a":1}` regression; shared strict decoder; final exact-main malformed compare returned `RECOVERY_PROOF_INVALID` |
+| B3 | Valid identical RecoveryProof comparison passes | **PASS** | PR #79 exact-head conformance + final exact-main valid proof comparison returned `equivalent:true` |
+| B4 | Tampered valid RecoveryProof comparison fails | **PASS** | PR #79 CLI regression preserves `RECOVERY_PROOF_MISMATCH` for valid unequal proofs |
+| B5 | Issue #77 ledger namespace policy explicitly accepted | **PASS** | closed-world policy recorded on #77; contract `docs/assurance/LEDGER_NAMESPACE_CONTRACT_V1.md`; Issue #77 closed |
+| B6 | #77 implementation/regressions pass for the accepted policy | **PASS** | PR #80 merged as `deb2cd42a69f61f30c2588b9cea18c75088aed97`; exact-head conformance run `37065000285` GREEN; accepted production Gate B bundle replay identity unchanged |
 
 ## C. Exact-head conformance
 
