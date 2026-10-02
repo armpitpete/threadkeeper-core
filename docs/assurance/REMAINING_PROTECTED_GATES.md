@@ -69,14 +69,23 @@ The fact that protected source `main` later advanced does not itself supersede t
 
 A future Core binary replacement must follow `docs/CORE_V1_RELEASE_BOUNDARY.md`.
 
-Current reconciliation blockers are:
+The reconciliation correctness blockers are now closed:
 
-1. Issue #76 — strict standalone RecoveryProof comparison;
-2. Issue #77 — authoritative-ledger namespace policy;
-3. exact-head conformance/build provenance;
-4. production-ledger-copy compatibility proof;
-5. downstream `armpitpete/threadkeeper` frozen Core-profile update;
-6. side-by-side live read-only equivalence before promotion.
+1. Issue #76 / PR #79 strict standalone RecoveryProof comparison: **PASS**;
+2. Issue #77 / PR #80 closed-world authoritative-ledger namespace: **PASS**.
+
+**CORE V1 NEXT-RELEASE CORRECTNESS GATES: PASS.**
+
+Remaining work belongs to the separately protected release-candidate/promotion sequence rather than unresolved Core correctness:
+
+1. exact release build identity and provenance;
+2. old/new comparison on the same production-ledger copy;
+3. production-shaped candidate load/recovery evidence as required by the release boundary;
+4. downstream `armpitpete/threadkeeper` frozen Core-profile update through protected review;
+5. side-by-side live read-only equivalence on IntoVPS;
+6. separate exact promotion authorization and post-promotion verification.
+
+None of these steps has begun as part of #76/#77 closure.
 
 ## Final write-enable decision
 
