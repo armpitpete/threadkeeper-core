@@ -2,6 +2,8 @@ package recoveryproof
 
 import (
 	"encoding/json"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -25,6 +27,24 @@ func validRecoveryProof() ledger.RecoveryProof {
 		GovernedRecordCount:          0,
 		GovernedRecordsSHA256:        strings.Repeat("5", 64),
 		ReplaySHA256:                 strings.Repeat("6", 64),
+	}
+}
+
+func TestRequiredFieldsMatchRecoveryProofJSONShape(t *testing.T) {
+	typeOfProof := reflect.TypeOf(ledger.RecoveryProof{})
+	want := make([]string, 0, typeOfProof.NumField())
+	for i := 0; i < typeOfProof.NumField(); i++ {
+		name := strings.Split(typeOfProof.Field(i).Tag.Get("json"), ",")[0]
+		if name == "" || name == "-" {
+			t.Fatalf("RecoveryProof field %s has no required JSON name", typeOfProof.Field(i).Name)
+		}
+		want = append(want, name)
+	}
+	got := append([]string(nil), requiredFields...)
+	sort.Strings(got)
+	sort.Strings(want)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("required RecoveryProof fields drifted: decoder=%v struct=%v", got, want)
 	}
 }
 
