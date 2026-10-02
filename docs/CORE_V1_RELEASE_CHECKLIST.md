@@ -20,12 +20,12 @@ Every row requires one of `PASS`, `FAIL`, or `N/A`, plus exact evidence. A blank
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| B1 | Issue #76 strict RecoveryProof comparison contract closed |  |  |
-| B2 | Incomplete/malformed RecoveryProof regression fails closed |  |  |
-| B3 | Valid identical RecoveryProof comparison passes |  |  |
-| B4 | Tampered valid RecoveryProof comparison fails |  |  |
-| B5 | Issue #77 ledger namespace policy explicitly accepted |  |  |
-| B6 | #77 implementation/regressions pass for the accepted policy |  |  |
+| B1 | Issue #76 strict RecoveryProof comparison contract closed | PASS | PR #79; protected-main `f1cb0a8309cd397227f767d786d1c80c2cd073d7` |
+| B2 | Incomplete/malformed RecoveryProof regression fails closed | PASS | PR #79 exact-head regression; merged in `f1cb0a8309cd397227f767d786d1c80c2cd073d7` |
+| B3 | Valid identical RecoveryProof comparison passes | PASS | PR #79 exact-head conformance; merged in `f1cb0a8309cd397227f767d786d1c80c2cd073d7` |
+| B4 | Tampered valid RecoveryProof comparison fails | PASS | PR #79 exact-head conformance; merged in `f1cb0a8309cd397227f767d786d1c80c2cd073d7` |
+| B5 | Issue #77 ledger namespace policy explicitly accepted | PASS | closed-world Core v1 namespace; PR #80; protected-main `deb2cd42a69f61f30c2588b9cea18c75088aed97` |
+| B6 | #77 implementation/regressions pass for the accepted policy | PASS | post-merge conformance run `37065581798`: `test` + `windows-git-environment-isolation` GREEN |
 
 ## C. Exact-head conformance
 
