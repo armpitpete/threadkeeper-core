@@ -1,6 +1,6 @@
 # Threadkeeper Core v1 Read-Only Release Boundary
 
-**Status:** normative release-boundary candidate for protected-main acceptance.
+**Status:** normative protected-main release boundary. Correctness gates #76/#77 satisfied on 2026-10-02; release-candidate deployment has not begun.
 
 ## Purpose
 
@@ -64,24 +64,27 @@ These do not block Core v1 read-only release unless a later reviewed dependency 
 
 MCP interoperability and Policy Pack contracts may remain in the source repository as non-blocking architecture/contracts. Their presence does not widen the Core production release boundary.
 
-## Mandatory next-release blockers
+## Pre-candidate correctness gates
 
-Before any new Core binary may be called a read-only release candidate:
+The repository correctness gates that had to close before release-candidate construction are now satisfied:
 
-1. **Issue #76 — strict standalone RecoveryProof comparison**
-   - incomplete/malformed proofs must never compare as equivalent;
-   - the complete proof shape must be validated before comparison;
-   - valid identical proofs still pass;
-   - tampered valid proofs still fail.
+1. **Issue #76 / PR #79 — strict standalone RecoveryProof comparison: PASS**
+   - incomplete/malformed proofs cannot compare as equivalent;
+   - the complete proof shape is validated before comparison through one shared strict decoder;
+   - valid identical proofs pass;
+   - valid unequal proofs fail with `RECOVERY_PROOF_MISMATCH`.
 
-2. **Issue #77 — authoritative-ledger namespace policy**
-   - choose an explicit v1 contract for unknown committed paths;
-   - if closed-world, implement deterministic unknown-path rejection and hostile regression;
-   - if inert-content tolerance, prove/document why later software cannot silently promote previously inert content into authority.
+2. **Issue #77 / PR #80 — authoritative-ledger namespace policy: PASS**
+   - Core v1 uses a closed-world committed-tree namespace;
+   - unknown paths fail closed across the complete authoritative history, including paths later deleted;
+   - the accepted v1 grammar is defined by `docs/assurance/LEDGER_NAMESPACE_CONTRACT_V1.md`;
+   - future namespace extension requires a separately reviewed format/migration contract.
 
-3. **Repository status must be internally consistent**
-   - `IMPLEMENTATION_STATUS.md` and protected-gate docs must describe the accepted production state;
-   - no stale issue may be used as evidence that an already-passed production gate is still open.
+3. **Repository current-state consistency**
+   - current status/protected-gate documents record #76/#77 as closed;
+   - historical reconciliation evidence remains historical rather than being treated as current blocker state.
+
+Passing these correctness gates authorizes only progression to the separately protected release-candidate sequence. It does not authorize building/deploying a production candidate, changing the downstream product profile, replacing the live binary, activating a Core service or enabling authority writes.
 
 ## Code-side candidate gates
 
