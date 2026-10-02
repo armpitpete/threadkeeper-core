@@ -1,93 +1,97 @@
-# Remaining Protected Gates
+# Core v1 Protected Gates — Reconciled Status
 
-These are the release-critical boundaries still open for Threadkeeper Core v1. Completed historical gates are recorded only where they constrain what follows.
+This document was originally the pre-production gate list. The 2026-10-02 reconciliation preserves those boundaries while recording which gates were subsequently satisfied.
 
-## Completed prerequisites
+Normative current release-boundary document: `docs/CORE_V1_RELEASE_BOUNDARY.md`.
+
+## Completed authority-kernel prerequisites
 
 Established:
 
 - assurance/recovery foundation integrated;
 - Ed25519 actor proof and exact-grant primitives implemented;
-- owner-selected Fresh Genesis path; no legacy governance ledger/head will be fabricated;
-- recovery-fork workflow implemented;
-- protected `main` ruleset active;
 - consolidated quarantine/CAS boundary merged as `fde19f4c03a1915f7d26da493593566a6017bc49` and independently **PASSED** Issue #36;
-- Fresh Genesis authority/bootstrap merged as `69b0c3b5f51c9891a78a623621bb64159b9672de` after exact-head conformance #165 and hostile self-review;
-- authoritative actor-policy sourcing merged as `f4ea4d7a7ab286446ca560a67619c181605fc189` after exact-head conformance #204 and hostile self-review.
+- Fresh Genesis bootstrap merged and the real production Genesis instantiated under Issue #45;
+- authoritative actor-policy sourcing installed and bound to production Genesis;
+- production filesystem ownership/durability semantics proved on the dedicated IntoVPS host;
+- code/reference load-resource machinery merged at `46f476fd4e0a346e45034310c423f6c1cd592f65`;
+- independent-secondary restore-verification machinery merged at `a51a6ccfdecc64797bdd263fa9bd9fc5f2d15b71`;
+- Core v1 code-side/reference E2E acceptance merged at `d39feadbe7c01258b2d36ff5d0675d994d991c68`.
 
-Historical governance remains explicit: PR #11 was owner-authorised and merged without a genuinely independent full Issue #9 PASS. That exception is not rewritten as a review that occurred.
+Historical governance remains explicit: PR #11 was owner-authorised and merged without a genuinely independent full Issue #9 PASS at that historical point. That history is not rewritten. The later consolidated authority boundary was independently re-tested and passed under Issue #36.
 
 None of these facts enables public authority writes.
 
-## 1. Load/resource proof machinery
+## Production Gate A — load/resource proof
 
-Issue #43 / PR #44 is the current independent code-side gate while real production deployment coordinates are unresolved.
+**PASS — 2026-08-20, Issue #51.**
 
-Acceptance requires:
+Accepted production envelope:
 
-- strict machine-readable workload/resource envelopes;
-- sampled peak and settled Go heap/goroutine/process descriptor-or-handle evidence;
-- Linux and Windows process-handle metrics exercised in conformance;
-- concurrent full replay/recovery equality under a bounded reference envelope;
-- restored-copy replay-under-load equality;
-- explicit bounded overload proof;
-- hard write-kill-switch proof under concurrency;
-- `ledger-load-proof` production handoff command;
-- an evidence matrix mapping all load-safety clauses;
-- checkpoint acceleration treated conditionally: full replay remains authoritative while acceleration is disabled;
-- complete exact-head conformance and hostile self-review.
+- `threadkeeper-core-production-initial-v1`;
+- 4 workers × 25 iterations;
+- 100 completed operations;
+- 991 resource samples;
+- zero unavailable open-handle samples;
+- measured peak/settled resource growth inside the accepted ceilings;
+- exact production RecoveryProof remained stable;
+- `passed:true`, exit 0, empty stderr.
 
-Passing this gate closes **proof machinery/reference conformance only**. It does not establish production capacity.
+Issue #65 was later closed as stale/duplicative of this evidence.
 
-## 2. Production Fresh Genesis + filesystem ownership
+## Production Gate B — independent secondary restore
 
-Perform one real deployment gate that both:
+**PASS — 2026-08-20, Issue #51.**
 
-1. creates the actual dedicated production governance ledger with Fresh Genesis and its real approved actor public-key/grant policy; and
-2. proves ledger and sibling quarantine storage are service-owned and non-writable by untrusted users/processes.
+The production authority was backed up to separately custodied OCI storage, the primary authority path was made unavailable, restore input was fetched from that declared secondary, the restored repository passed strict fsck, and Core reproduced exact Genesis/actor-policy/head/replay/projection RecoveryProof identity.
 
-Evidence must bind the actual host, paths, service identity, project/ledger IDs, authority-policy version, actor IDs/public keys/grants, initial schema/binding seed, authoritative ref, Genesis/policy digests, Genesis commit/head, replay/recovery proof and platform-native permissions/ACLs.
+Core correctly reports operational independence as requiring external review; the external evidence review separately recorded Gate B PASS with its caveats preserved.
 
-Private signing keys are never ledger or deployment-evidence material.
+## Production Gate C — direct Core service activation
 
-This gate is currently blocked on real deployment coordinates/material, not on missing Core code. See `docs/operations/FRESH_GENESIS_DEPLOYMENT_V1.md`.
+**N/A by accepted architecture / PASS by review — 2026-08-20, Issue #51.**
 
-## 3. Actual production load/resource envelope
+Core v1 remains intentionally CLI/library-only in production.
 
-After the production-shaped target exists and Issue #43 is accepted, declare the selected production envelope and run:
+Do not create `threadkeeper-core.service`, a daemon or listener merely to satisfy an obsolete service-activation assumption. Persistent transports/adapters belong outside Core unless a later protected architecture decision proves a missing Core runtime primitive.
 
-```text
-threadkeeper-core ledger-load-proof <ledger.git> <envelope.json> [authoritative-ref]
-```
+## Current accepted production state
 
-Require exact RecoveryProof stability plus passing explicit peak/settled resource ceilings. Repository reference results are not production capacity evidence.
+- deployed source: `46f476fd4e0a346e45034310c423f6c1cd592f65`;
+- binary SHA-256: `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`;
+- authority writes: disabled;
+- direct Core service: none;
+- production read-only operational acceptance: PASS.
 
-See `docs/operations/LOAD_RESOURCE_PROOF_V1.md`.
+The fact that protected source `main` later advanced does not itself supersede this accepted production profile.
 
-## 4. Independent secondary restore
+## Future binary-replacement gates
 
-Perform a destructive restore from an independently operated secondary backup location and prove exact Genesis identity, actor-policy identity, authoritative head, replay and projection equivalence. Another directory on the same authority boundary is not sufficient evidence.
+A future Core binary replacement must follow `docs/CORE_V1_RELEASE_BOUNDARY.md`.
 
-Local destructive/restored-copy tests prove machinery only and do not close this operational gate.
+Current reconciliation blockers are:
 
-## 5. End-to-end release acceptance
+1. Issue #76 — strict standalone RecoveryProof comparison;
+2. Issue #77 — authoritative-ledger namespace policy;
+3. exact-head conformance/build provenance;
+4. production-ledger-copy compatibility proof;
+5. downstream `armpitpete/threadkeeper` frozen Core-profile update;
+6. side-by-side live read-only equivalence before promotion.
 
-Run the complete production-shaped sequence:
+## Final write-enable decision
 
-fresh install → create Fresh Genesis ledger → load authoritative actor policy → authenticate → authorised write → restart → idempotent retry → concurrent conflict → independent restore → replay.
+`AUTHORITY_WRITES_DISABLED` remains the hard public/service gate.
 
-Require identical final Genesis/actor-policy identity, authoritative state and deterministic projection.
+Removing or weakening it is **not** a remaining step of the already accepted read-only Core v1 profile. It is a distinct future protected release decision requiring its own exact transport, authentication/authorization, recovery and operational evidence.
 
-## 6. Release decision
+## Optional integrations
 
-Only after every preceding gate passes may a separate reviewed release decision consider removing `AUTHORITY_WRITES_DISABLED` and exposing any public authority-write transport.
+Not Core v1 read-only prerequisites unless separately selected:
 
-## Public write status
-
-`AUTHORITY_WRITES_DISABLED`
-
-No merge, deployment step, test result or authentication success silently authorises public authority writes.
-
-## Optional operational integrations
-
-Not Core v1 prerequisites unless selected: external witness service/key deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage and human GUI.
+- external witness deployment;
+- federation transport;
+- checkpoint-accelerated replay;
+- Recall/search/vector storage;
+- GUI;
+- MCP product transport;
+- Policy Pack/Specialist Pack product rollout.
