@@ -155,11 +155,16 @@ The accepted deployed profile remains source `46f476fd4e0a346e45034310c423f6c1cd
 
 Protected source `main` later advanced through restore-verification/E2E work and optional MCP/Policy Pack contracts. That source advance is not an automatic production update. The downstream `armpitpete/threadkeeper` product deliberately binds its Core observer to the accepted deployed profile.
 
-For any future Core binary replacement, the normative release boundary is `docs/CORE_V1_RELEASE_BOUNDARY.md`. Current next-release blockers identified by the 2026-10-02 reconciliation are:
+For any future Core binary replacement, the normative release boundary is `docs/CORE_V1_RELEASE_BOUNDARY.md`.
 
-1. Issue #76 — standalone `recovery-compare` must reject incomplete/malformed RecoveryProof inputs before equivalence comparison;
-2. Issue #77 — explicitly decide and enforce/document the authoritative-ledger namespace policy for unknown committed paths;
-3. exact protected-main conformance/build/provenance and downstream product-profile reconciliation required by the release boundary.
+The two correctness blockers identified by the 2026-10-02 reconciliation are now closed in protected-main lineage:
+
+1. Issue #76 — strict standalone RecoveryProof comparison — merged by PR #79 as protected-main `f1cb0a8309cd397227f767d786d1c80c2cd073d7`;
+2. Issue #77 — closed-world Core v1 authoritative-ledger namespace — merged by PR #80 as protected-main `deb2cd42a69f61f30c2588b9cea18c75088aed97`.
+
+Fresh post-merge conformance on `deb2cd42a69f61f30c2588b9cea18c75088aed97` (run `37065581798`) passed both required jobs, including whole-tree race coverage and the hard authority-write-disable proof.
+
+The remaining work belongs to the later release-candidate/deployment phase: exact candidate build/provenance, production-ledger-copy compatibility, downstream product-profile reconciliation, side-by-side live read-only validation and separately authorised promotion. This status does not authorise deployment.
 
 Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, GUI, MCP product transport and Policy/Specialist Pack product rollout unless separately selected.
 
