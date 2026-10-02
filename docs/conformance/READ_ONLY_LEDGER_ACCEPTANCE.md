@@ -76,6 +76,10 @@ Shallow repositories/shallow metadata, Git grafts, repository-local fsck overrid
 
 A logical `event_id` may occur only once in accepted replay history. A second accepted event with the same logical event ID is an integrity failure, regardless of path or content.
 
+## RO-18 — Closed-world committed namespace
+
+Every committed tree path in authoritative history must belong to the recognised Core v1 ledger namespace. Unknown paths fail with `INTEGRITY_FAILURE` even if they are later deleted or appear in a commit that otherwise has no recognised semantic changes. The accepted path grammar is defined by `docs/assurance/LEDGER_NAMESPACE_CONTRACT_V1.md`.
+
 ## Completion gate
 
-The lane is complete only when exact-head CI proves healthy replay, ambient Git isolation, shallow/graft rejection, corruption rejection, immutable-event rejection, duplicate-event-ID rejection, digest failure detection, CGO-free build, clean module metadata, and the continuing hard authority-write disable gate.
+The lane is complete only when exact-head CI proves healthy replay, ambient Git isolation, shallow/graft rejection, corruption rejection, immutable-event rejection, duplicate-event-ID rejection, unknown committed-path rejection, digest failure detection, CGO-free build, clean module metadata, and the continuing hard authority-write disable gate.
