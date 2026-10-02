@@ -135,18 +135,20 @@ PR #13's Git-alternates repair is also superseded. Current `main` rejects `objec
 
 Issue #54 remains the Core-side status-correction gate until the reconciliation/status documentation PR is merged.
 
-### Newly demonstrated next-release decisions
+### Newly demonstrated next-release decisions — resolved after reconciliation
 
-- **#76 — Harden recovery-compare against incomplete RecoveryProof inputs.**
-  - live hostile case proved that incomplete documents can compare as equivalent in the standalone command;
-  - the newer restore-verification decoder is already strict;
-  - this does not invalidate the frozen production observer, which does not call `recovery-compare`;
-  - **RELEASE BLOCKER for any future Core binary replacement**.
-- **#77 — Decide and enforce Core v1 authoritative-ledger namespace policy.**
-  - unrelated committed content changes ledger/replay identity but is currently tolerated by replay;
-  - protected semantic files remain integrity-enforced;
-  - the contract must explicitly choose closed-world namespace enforcement or documented inert-content tolerance;
-  - **RELEASE BLOCKER (policy decision, then implementation if required) for any future Core binary replacement**.
+The findings below were release blockers when discovered. Both are now closed in protected-main lineage.
+
+- **#76 — Harden recovery-compare against incomplete RecoveryProof inputs: PASS / MERGED.**
+  - the hostile zero-value-equivalence defect was repaired with one shared strict RecoveryProof decoder/validator;
+  - PR #79 merged as protected-main `f1cb0a8309cd397227f767d786d1c80c2cd073d7`;
+  - incomplete, null, unknown, duplicate and trailing proof inputs fail before comparison while valid equality/mismatch behaviour is preserved.
+- **#77 — Decide and enforce Core v1 authoritative-ledger namespace policy: PASS / MERGED.**
+  - the accepted policy is closed-world Core v1 authoritative history;
+  - PR #80 merged as protected-main `deb2cd42a69f61f30c2588b9cea18c75088aed97`;
+  - unknown committed paths fail closed across complete history, including paths later deleted and mixed valid/unknown commits.
+
+Fresh post-merge conformance run `37065581798` on `deb2cd42a69f61f30c2588b9cea18c75088aed97` passed both required jobs. No production component changed.
 
 ### Deferred programme work
 
@@ -223,15 +225,13 @@ The deployed `46f476fd...` profile is **PRODUCTION READ-ONLY ACCEPTED**.
 
 ### Standalone RecoveryProof comparison
 
-Current standalone `recovery-compare` validates raw JSON syntax but does not require a complete RecoveryProof before struct comparison. Issue #76 owns the required next-release repair.
-
-The strict `restoreproof.DecodeRecoveryProof` path already requires the full closed proof shape and is the accepted restore-verification path.
+Issue #76 is closed. Current protected-main lineage requires both serialized inputs to decode as complete strict RecoveryProof documents before equality is evaluated. Standalone `recovery-compare` and restore verification share the same decoder/validator.
 
 ### Ledger namespace
 
-Current Core strongly enforces known semantic paths but does not currently fail merely because an unrelated path exists in history. Issue #77 owns the contract decision.
+Issue #77 is closed. Current protected-main lineage enforces a closed-world Core v1 committed-tree namespace and rejects unknown paths with `INTEGRITY_FAILURE` across complete authoritative history.
 
-No production ledger mutation was performed to establish this finding; testing used a disposable ledger.
+No production ledger mutation was performed while establishing or repairing either finding; compatibility testing used disposable/restored copies.
 
 ## Product-repository contradiction scan
 
@@ -243,20 +243,18 @@ The product binding is therefore deliberately left unchanged.
 
 ## Next-release baseline decision
 
-There is **no immediate production-update requirement merely because Core source-main is seven commits ahead**.
+There is **no immediate production-update requirement merely because Core source-main has advanced beyond the deployed production source**.
 
-The current deployed profile remains operationally accepted and is intentionally bound by the product observer.
+The current deployed profile remains operationally accepted and is intentionally bound by the product observer. Issues #76 and #77 are already closed in the protected source lineage.
 
 For any future Core binary replacement:
 
-1. begin from current protected-main lineage;
-2. close #76;
-3. close #77 with an explicit policy and any required implementation;
-4. require exact-head `test` and `windows-git-environment-isolation` PASS plus the release checklist in `CORE_V1_RELEASE_BOUNDARY.md`;
-5. build/freeze an exact candidate;
-6. prove compatibility against a copy of the real authority ledger;
-7. update the downstream `threadkeeper` frozen Core profile through protected review;
-8. only then perform side-by-side/live read-only comparison and a separately authorised promotion.
+1. begin from current protected-main lineage and preserve the merged #76/#77 contracts;
+2. require exact-head `test` and `windows-git-environment-isolation` PASS plus the release checklist in `CORE_V1_RELEASE_BOUNDARY.md`;
+3. build/freeze an exact candidate with complete provenance;
+4. prove compatibility against a copy of the real authority ledger;
+5. update the downstream `threadkeeper` frozen Core profile through protected review;
+6. only then perform side-by-side/live read-only comparison and a separately authorised promotion.
 
 ## Reconciliation terminal state
 
@@ -274,7 +272,7 @@ Current production Core:
   production read-only acceptance: PASS
 
 Next Core release base: current protected-main lineage
-Next-release blockers: #76, #77, exact release-candidate gates
+Next-release correctness gates: #76 PASS, #77 PASS; remaining work is the exact release-candidate/deployment gates
 Deferred: MCP/Policy Pack/Specialist Pack/research unless a proven authority-kernel dependency appears
 
 Production binary changed: NO
