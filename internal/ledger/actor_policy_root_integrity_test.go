@@ -37,18 +37,10 @@ func TestReplayRejectsNonRegularRootActorPolicy(t *testing.T) {
 	work := rawWorkRepo(t)
 	writeTestGenesis(t, work, nil)
 	policyPath := filepath.Join(work, filepath.FromSlash(actorauth.LedgerPolicyPath))
-	policyBytes, err := os.ReadFile(policyPath)
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := os.Remove(policyPath); err != nil {
 		t.Fatal(err)
 	}
-	payload := filepath.Join(work, "actor-policy-payload.json")
-	if err := os.WriteFile(payload, policyBytes, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink("../../../actor-policy-payload.json", policyPath); err != nil {
+	if err := os.Symlink("../../../missing-actor-policy-payload.json", policyPath); err != nil {
 		t.Fatal(err)
 	}
 	commitAll(t, work, "symlink root actor policy")
