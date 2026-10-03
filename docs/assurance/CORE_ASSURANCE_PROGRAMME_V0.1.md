@@ -8,7 +8,7 @@ This programme implements the whole-project review recommendations while disting
 
 | Capability | Implementation | State |
 |---|---|---|
-| Genesis trust root | `internal/genesis` + adoption contract | validator installed; legacy adoption decision pending |
+| Genesis trust root | `internal/genesis` + adoption contract | validator installed; Fresh Genesis selected and production-instantiated under Issue #45; legacy adoption is not used for the current production ledger |
 | Threat model | Threat Model v1 | installed review boundary |
 | Source escrow | `internal/escrow` content-addressed store | installed |
 | Exact source ingestion | `internal/sourceadapter`, `internal/source` | installed filesystem adapter + immutable registry |

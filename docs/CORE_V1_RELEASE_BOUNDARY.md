@@ -1,6 +1,6 @@
 # Threadkeeper Core v1 Read-Only Release Boundary
 
-**Status:** normative release-boundary candidate for protected-main acceptance.
+**Status:** normative protected-main release boundary. Correctness gates #76/#77 are satisfied; release-candidate deployment has not begun.
 
 ## Purpose
 

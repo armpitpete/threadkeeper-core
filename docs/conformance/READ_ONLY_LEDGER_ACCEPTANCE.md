@@ -2,7 +2,7 @@
 
 ## Status
 
-Candidate until merged to the default branch. These gates define the first read-only durable-ledger implementation boundary.
+Accepted when present on the default branch; candidate otherwise. These gates define the first read-only durable-ledger implementation boundary.
 
 ## Scope
 
