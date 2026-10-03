@@ -1,6 +1,6 @@
 # Threadkeeper Policy Pack Repository-Content Security Addendum v0.1
 
-**Status:** Candidate until merged to the default branch  
+**Status:** Accepted as a repository security addendum when present on the default branch; no product rollout or authority effect is implied
 **Scope:** Repository-controlled content presented to Policy Pack evaluators, adapters, MCP servers, coding agents and related tooling  
 **Authority effect:** None by itself
 

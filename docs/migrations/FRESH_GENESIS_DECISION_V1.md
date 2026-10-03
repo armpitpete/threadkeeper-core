@@ -50,8 +50,24 @@ Actual Genesis instantiation remains a protected deployment operation and must b
 
 Fresh Genesis instantiation and proof that ledger/quarantine storage is service-owned and non-writable by untrusted users/processes should be performed together on the actual target. A source-repository commit is never a governance-ledger Genesis identity.
 
-Until that deployment operation is performed and verified, the accurate state is:
+### Historical pre-deployment state
+
+At the time this decision was recorded, the accurate pre-deployment state was:
 
 > **Fresh Genesis selected; bootstrap machinery installed; authoritative actor-policy sourcing under review; production Genesis not yet instantiated.**
 
-`AUTHORITY_WRITES_DISABLED` remains unchanged.
+That statement is preserved as historical chronology and is not the current production state.
+
+## Subsequent production completion
+
+Issue #41 / PR #42 subsequently installed authoritative ledger-derived actor-policy sourcing. Issue #45 then completed the protected Fresh Genesis deployment and closed PASS.
+
+Current accepted production evidence includes:
+
+- production ledger: `/var/lib/threadkeeper-core/authority/ledger.git`;
+- Genesis commit/head: `73fa0e66df2ae80b4b2a04247112470f6bb8e451`;
+- replay SHA-256: `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
+- authoritative actor-policy sourcing installed and bound to Genesis;
+- restart/reopen, strict fsck/replay and production filesystem ownership evidence accepted under Issue #45.
+
+No later completion changed the public write boundary. `AUTHORITY_WRITES_DISABLED` remains unchanged.

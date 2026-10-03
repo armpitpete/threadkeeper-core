@@ -10,11 +10,11 @@ Every row requires one of `PASS`, `FAIL`, or `N/A`, plus exact evidence. A blank
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| A1 | Protected source base identified by exact SHA |  |  |
-| A2 | Current production source/binary/profile recorded |  |  |
-| A3 | Downstream `armpitpete/threadkeeper` Core-profile impact enumerated |  |  |
-| A4 | No unresolved contradictory current-status document |  |  |
-| A5 | Optional/deferred work cannot silently become a release blocker |  |  |
+| A1 | Protected source base identified by exact SHA | **PASS** | repository/reconciliation closure base protected-main `6fd56b1143c3acb9addba860db0fcc4879608244`; PR #82 merged at that exact protected-main state |
+| A2 | Current production source/binary/profile recorded | **PASS** | deployed source `46f476fd4e0a346e45034310c423f6c1cd592f65`; binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`; ledger `/var/lib/threadkeeper-core/authority/ledger.git` / `refs/heads/main`; no Core service; `AUTHORITY_WRITES_DISABLED` |
+| A3 | Downstream `armpitpete/threadkeeper` Core-profile impact enumerated | **PASS** | `docs/CORE_V1_RECONCILIATION_2026-10-02.md`; product observer remains deliberately bound to the accepted deployed Core profile; future RC requires a separate protected product-profile change |
+| A4 | No unresolved contradictory current-status document | **PASS** | PR #82 merge `6fd56b1143c3acb9addba860db0fcc4879608244`; repository-wide closure scan repairs the remaining release-boundary/Fresh-Genesis status residue and records exact-head scan evidence in the closure PR |
+| A5 | Optional/deferred work cannot silently become a release blocker | **PASS** | Issues #70/#74 remain explicitly deferred/non-blocking; `docs/CORE_V1_RELEASE_BOUNDARY.md` keeps Recall/MCP/Policy Pack/Specialist Pack and other optional product lanes outside the Core v1 read-only release boundary |
 
 ## B. Release-blocking correctness
 

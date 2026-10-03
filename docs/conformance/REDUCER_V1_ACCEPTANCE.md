@@ -2,7 +2,7 @@
 
 ## Status
 
-Candidate until merged to the default branch.
+Accepted when present on the default branch; candidate otherwise.
 
 These gates define conformance for the first Threadkeeper Core current-state reducer family.
 

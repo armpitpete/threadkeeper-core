@@ -1,6 +1,6 @@
 # MCP 2026-07-28 Interoperability Profile v0.1
 
-Status: candidate until merged with ADR-006.
+Status: accepted with ADR-006 on the repository default branch; optional interoperability profile, not a Core v1 production prerequisite.
 
 This profile translates MCP 2026-07-28 concepts into Threadkeeper boundaries. It is an adapter contract, not a new Core protocol or authority model.
 

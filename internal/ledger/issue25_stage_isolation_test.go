@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestIssue25IdenticalConcurrentPreparesUsePrivateStages(t *testing.T) {
@@ -42,8 +43,20 @@ func TestIssue25IdenticalConcurrentPreparesUsePrivateStages(t *testing.T) {
 		}()
 	}
 
-	<-arrived
-	<-arrived
+	arrivalTimer := time.NewTimer(45 * time.Second)
+	defer arrivalTimer.Stop()
+	arrivals := 0
+	for arrivals < 2 {
+		select {
+		case <-arrived:
+			arrivals++
+		case got := <-done:
+			t.Fatalf("prepare returned before both workers reached private-stage rendezvous: arrivals=%d candidate=%#v response=%#v err=%v", arrivals, got.candidate, got.response, got.err)
+		case <-arrivalTimer.C:
+			stages, globErr := filepath.Glob(filepath.Join(r.CandidateQuarantineDir(), quarantineStagePrefix+"*.candidate"))
+			t.Fatalf("timed out waiting for private-stage rendezvous: arrivals=%d stages=%v glob_err=%v", arrivals, stages, globErr)
+		}
+	}
 	stages, err := filepath.Glob(filepath.Join(r.CandidateQuarantineDir(), quarantineStagePrefix+"*.candidate"))
 	if err != nil {
 		t.Fatal(err)
@@ -53,8 +66,19 @@ func TestIssue25IdenticalConcurrentPreparesUsePrivateStages(t *testing.T) {
 	}
 
 	releaseOnce.Do(func() { close(release) })
-	first := <-done
-	second := <-done
+	completionTimer := time.NewTimer(45 * time.Second)
+	defer completionTimer.Stop()
+	results := make([]result, 0, 2)
+	for len(results) < 2 {
+		select {
+		case got := <-done:
+			results = append(results, got)
+		case <-completionTimer.C:
+			t.Fatalf("timed out waiting for prepares after private-stage release: completed=%d", len(results))
+		}
+	}
+	first := results[0]
+	second := results[1]
 	for i, got := range []result{first, second} {
 		if got.err != nil {
 			t.Fatalf("prepare %d failed: %v", i+1, got.err)

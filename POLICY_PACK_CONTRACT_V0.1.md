@@ -1,6 +1,6 @@
 # Threadkeeper Policy Pack Contract v0.1
 
-**Status:** Candidate until merged to the default branch  
+**Status:** Accepted as a repository contract when present on the default branch; no product rollout or authority effect is implied
 **Scope:** Domain-policy evaluation layered over Threadkeeper Core  
 **Authority effect:** None by itself
 

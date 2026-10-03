@@ -1,6 +1,6 @@
 # Threadkeeper Core Assurance Standard v0.2
 
-**Status:** candidate until merged to the repository default branch.  
+**Status:** accepted when present on the repository default branch; candidate otherwise.
 **Relationship:** extends `THREADKEEPER_STANDARD.md`; it does not weaken any v0.1 requirement.
 
 ## TK-ASSURE-001 — Rooted genesis
