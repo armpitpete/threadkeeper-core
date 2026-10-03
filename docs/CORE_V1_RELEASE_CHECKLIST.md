@@ -90,12 +90,12 @@ This stage MUST use a copy, not the live authority path.
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| G1 | exact new Core profile proposed in `armpitpete/threadkeeper` |  |  |
-| G2 | observer binary/source/path/ref/proof bindings updated through protected review |  |  |
-| G3 | observer command allowlist remains bounded/read-only |  |  |
-| G4 | observer hostile/freshness/profile tests GREEN |  |  |
-| G5 | product change does not enable Core writes/service/second Manager |  |  |
-| G6 | exact product protected-main SHA accepting the new profile recorded |  |  |
+| G1 | exact new Core profile proposed in `armpitpete/threadkeeper` | **PASS** | PR #581 reconciled candidate head `0c96de13a86620e6e848be4a3741f05218987d9a` binds Core RC1 binary SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac` and source `84c3e983768f67b518c6c84f2eb62f0bf4babae7` |
+| G2 | observer binary/source/path/ref/proof bindings updated through protected review | **PASS** | PR #581 exact base `c5e72d8fce05dd94bd0c597e2ed8cac2acd4e731`, head `0c96de13a86620e6e848be4a3741f05218987d9a`; bindings accepted through governed merge to protected main `7a8b43481b70de9646ed882e5a950246781479e5` |
+| G3 | observer command allowlist remains bounded/read-only | **PASS** | accepted profile keeps allowlist exactly `version` + `ledger-recovery-proof`; mutation commands remain forbidden by tests and implementation |
+| G4 | observer hostile/freshness/profile tests GREEN | **PASS** | exact-head runs: Ledger `37144377584`, Release Integrity `37144377495`, Core observation package `37144377662`, production package `37144377758` all SUCCESS; Proofkeeper run `37145358765` PASS with proof key `pk-b4a980c49f7076f386c52acf8a7aa73107c9259c5961dec189169e8bcd13260f`; post-merge exact-main runs `37145823072`, `37145823054`, `37145823238`, `37145823249`, `37145823084` all SUCCESS |
+| G5 | product change does not enable Core writes/service/second Manager | **PASS** | PR #581 changed only observer profile/docs/test/impact surfaces; no Core write path, listener/service/database, second Manager, deployment or authority expansion; ruleset `24422007` remains active with ordinary owner bypass `never` |
+| G6 | exact product protected-main SHA accepting the new profile recorded | **PASS** | Release Authority decision `ra-a08cb81e1033f1e8abf89da3e4d8d2810e5cae32977451c7cbecd8fd265d64b8`; App-governed merge actor `merrin-threadkeeper-manager[bot]`; resulting protected main `7a8b43481b70de9646ed882e5a950246781479e5`; merge receipt SHA-256 `58fcba36ae7718ff17deae8b44c2b410f58cc3315e05a6a7f93c189aac17d088` |
 
 ## H. Side-by-side IntoVPS validation
 
