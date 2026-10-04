@@ -103,14 +103,14 @@ The existing production binary MUST remain available as rollback material during
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| H1 | candidate installed at a separate non-authoritative path |  |  |
-| H2 | candidate binary SHA matches frozen build |  |  |
-| H3 | candidate read-only inspection against live ledger succeeds |  |  |
-| H4 | live Genesis/actor-policy/head/replay identity matches accepted state |  |  |
-| H5 | candidate authority-write path remains hard-disabled |  |  |
-| H6 | no unexpected Core listener/service introduced |  |  |
-| H7 | no unexpected Core external network dependency introduced |  |  |
-| H8 | live read-only comparison old vs candidate accepted |  |  |
+| H1 | candidate installed at a separate non-authoritative path | **PASS** | root-owned `0555` candidate at `/opt/threadkeeper-core/candidates/threadkeeper-core-v1-rc1`; production path `/usr/local/bin/threadkeeper-core` retained unchanged |
+| H2 | candidate binary SHA matches frozen build | **PASS** | live IntoVPS candidate SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`, exact frozen Gate D build |
+| H3 | candidate read-only inspection against live ledger succeeds | **PASS** | candidate `ledger-inspect` and `ledger-recovery-proof` succeeded as `threadkeeper-core` against live `/var/lib/threadkeeper-core/authority/ledger.git` / `refs/heads/main`; inspection SHA-256 `4c5c148cbe66f37affadb39aa93286308a0efd642fbc0cd53582f9d7f8949cc6`; proof file SHA-256 `978801ca94138353572a37d948db888e8b1585042c98bee85c3f4d7f43e2db88` |
+| H4 | live Genesis/actor-policy/head/replay identity matches accepted state | **PASS** | live head/Genesis `73fa0e66df2ae80b4b2a04247112470f6bb8e451`; actor-policy root `803e61858fe1dfae96b357845bed1b10644a5028801d307533fcf312d8b4a40a`; replay SHA-256 `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12` |
+| H5 | candidate authority-write path remains hard-disabled | **PASS** | candidate `authority-write` exit `1`; exact `AUTHORITY_WRITES_DISABLED` rejection preserved |
+| H6 | no unexpected Core listener/service introduced | **PASS** | no Core service file/unit/process; production binary remains SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`; listener-set hash unchanged before/after `886ee514cf47e46067a7aaadb58df2f30efe2a6c376b5184cc29ad4c1fc775eb` |
+| H7 | no unexpected Core external network dependency introduced | **PASS** | static candidate; live candidate RecoveryProof under `strace -f -qq -e trace=network -e signal=none` produced 0 network-trace bytes; non-privileged version/write-gate paths also produced zero network syscalls |
+| H8 | live read-only comparison old vs candidate accepted | **PASS** | old and RC1 live proof files byte-identical SHA-256 `978801ca94138353572a37d948db888e8b1585042c98bee85c3f4d7f43e2db88`; old and RC1 live inspection files byte-identical SHA-256 `4c5c148cbe66f37affadb39aa93286308a0efd642fbc0cd53582f9d7f8949cc6`; live ledger manifest unchanged before/after `e98fea09157b1b4f514a68447cdf078df8f3b58725dfc99f5c7fad0f45d5a99a` |
 
 ## I. Protected promotion
 
