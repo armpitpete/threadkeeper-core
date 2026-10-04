@@ -164,11 +164,21 @@ The two correctness blockers identified by the 2026-10-02 reconciliation are now
 
 Fresh post-merge conformance on `deb2cd42a69f61f30c2588b9cea18c75088aed97` (run `37065581798`) passed both required jobs, including whole-tree race coverage and the hard authority-write-disable proof.
 
-The release-candidate/deployment sequence through protected promotion is complete: exact candidate build/provenance, production-ledger-copy compatibility, downstream product-profile reconciliation, side-by-side live read-only validation and separately authorised promotion all passed. Remaining Core v1 release work is the Gate J final-disposition/closure record only; this status does not authorise service activation or authority-write enablement.
+The release-candidate/deployment sequence and Gate J terminal disposition are complete: exact candidate build/provenance, production-ledger-copy compatibility, downstream product-profile reconciliation, side-by-side live read-only validation, separately authorised promotion, repository reconciliation and final disposition all passed.
+
+Terminal Core v1 RC1 states are:
+
+- **CORE IMPLEMENTATION COMPLETE** — exact source `84c3e983768f67b518c6c84f2eb62f0bf4babae7`;
+- **READ-ONLY RELEASE CANDIDATE: PASS** — exact binary SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`;
+- **PRODUCTION READ-ONLY ACCEPTED: PASS** — exact deployed `threadkeeper-core-v1-rc1` profile;
+- **SERVICE ACTIVATED: N/A** — Core v1 remains CLI/library-only;
+- **AUTHORITY WRITES ENABLED: NO** — `AUTHORITY_WRITES_DISABLED` remains a hard invariant.
+
+Gate J closure is recorded under Issue #96. There is no remaining Core v1 read-only release gate for this exact profile. This status does not authorise a future binary replacement, service activation, public transport or authority-write enablement.
 
 Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, GUI, MCP product transport and Policy/Specialist Pack product rollout unless separately selected.
 
-Current reconciliation: `docs/CORE_V1_RECONCILIATION_2026-10-02.md`.
+Historical reconciliation baseline: `docs/CORE_V1_RECONCILIATION_2026-10-02.md`.
 
 ## Write status
 
