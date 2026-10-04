@@ -57,33 +57,30 @@ Do not create `threadkeeper-core.service`, a daemon or listener merely to satisf
 
 ## Current accepted production state
 
-- deployed source: `46f476fd4e0a346e45034310c423f6c1cd592f65`;
-- binary SHA-256: `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`;
+- release: `threadkeeper-core-v1-rc1`;
+- deployed source: `84c3e983768f67b518c6c84f2eb62f0bf4babae7`;
+- binary SHA-256: `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`;
+- authority head/Genesis: `73fa0e66df2ae80b4b2a04247112470f6bb8e451`;
+- replay SHA-256: `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
 - authority writes: disabled;
 - direct Core service: none;
-- production read-only operational acceptance: PASS.
+- protected promotion through Gate I: PASS.
 
-The fact that protected source `main` later advanced does not itself supersede this accepted production profile.
+The prior binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material. Protected source `main` may advance beyond the frozen deployed source without itself changing production.
 
-## Future binary-replacement gates
+## Core v1 RC1 binary-replacement gate status
 
-A future Core binary replacement must follow `docs/CORE_V1_RELEASE_BOUNDARY.md`.
+The protected RC1 binary-replacement sequence is complete through Gate I:
 
-The 2026-10-02 correctness blockers are closed in protected-main lineage:
+1. exact protected-main release-candidate conformance and build provenance: **PASS**;
+2. production-ledger-copy compatibility proof: **PASS**;
+3. downstream `armpitpete/threadkeeper` frozen Core-profile update: **PASS**;
+4. side-by-side live read-only equivalence before promotion: **PASS**;
+5. separately authorised protected promotion: **PASS**.
 
-- Issue #76 — strict standalone RecoveryProof comparison — **PASS / MERGED** in PR #79 as `f1cb0a8309cd397227f767d786d1c80c2cd073d7`;
-- Issue #77 — closed-world authoritative-ledger namespace — **PASS / MERGED** in PR #80 as `deb2cd42a69f61f30c2588b9cea18c75088aed97`;
-- fresh post-merge conformance run `37065581798` on `deb2cd42a69f61f30c2588b9cea18c75088aed97` passed both required jobs.
+Gate I promotion evidence is preserved in Issue #94. Remaining Core v1 release work is the Gate J final-disposition/closure record only.
 
-Remaining future binary-replacement gates are:
-
-1. exact protected-main release-candidate conformance and build provenance;
-2. production-ledger-copy compatibility proof;
-3. downstream `armpitpete/threadkeeper` frozen Core-profile update;
-4. side-by-side live read-only equivalence before promotion;
-5. separately authorised protected promotion.
-
-No item above authorises starting the release-candidate deployment phase before repository-status reconciliation itself is merged and accepted.
+No completed gate authorises a future binary replacement, Core service/listener, public transport, ledger-history rewrite or authority-write enablement. Those require separate protected decisions.
 
 ## Final write-enable decision
 

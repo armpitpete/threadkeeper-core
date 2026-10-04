@@ -1,28 +1,32 @@
 # Threadkeeper Core v1 Read-Only Release Boundary
 
-**Status:** normative protected-main release boundary. Correctness gates #76/#77 are satisfied; release-candidate deployment has not begun.
+**Status:** normative protected-main release boundary. Core v1 RC1 has completed protected promotion through Gate I with authority writes still hard-disabled; final Gate J dispositions remain to be recorded.
 
 ## Purpose
 
-The next Threadkeeper Core release boundary is:
+The Threadkeeper Core v1 release boundary is:
 
 > **Threadkeeper Core v1 read-only production authority kernel: deterministic validation, replay, recovery, restore verification and production load assurance, with authority writes hard-disabled.**
 
-This document governs a **future Core binary replacement**. It does not invalidate the currently accepted production profile and does not itself authorize deployment.
+This document governed the protected Core v1 RC1 replacement now accepted through Gate I. It does not authorize any later binary replacement, service activation, public transport, ledger mutation or authority-write enablement; each remains a separate protected transition.
 
 ## Current accepted production profile
 
-The accepted production Core remains:
+The accepted production Core is now:
 
-- source: `46f476fd4e0a346e45034310c423f6c1cd592f65`;
-- binary SHA-256: `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`;
+- release: `threadkeeper-core-v1-rc1`;
+- source: `84c3e983768f67b518c6c84f2eb62f0bf4babae7`;
+- binary SHA-256: `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`;
+- active path: `/usr/local/bin/threadkeeper-core`;
 - ledger/ref: `/var/lib/threadkeeper-core/authority/ledger.git` / `refs/heads/main`;
 - Genesis/head: `73fa0e66df2ae80b4b2a04247112470f6bb8e451`;
+- actor-policy root: `803e61858fe1dfae96b357845bed1b10644a5028801d307533fcf312d8b4a40a`;
 - replay SHA-256: `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
+- canonical RecoveryProof SHA-256: `3806b7c8a94d9521a991927781ead2ca78ab4ec12b66cbceb641086e9e66cad4`;
 - authority writes: disabled;
 - direct Core service: not applicable by accepted CLI/library-only architecture.
 
-Operational acceptance evidence is preserved in Issue #51.
+Gate I promotion and post-promotion evidence are preserved in Issue #94. The prior accepted binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material; its earlier operational acceptance evidence remains preserved in Issue #51.
 
 ## In scope
 
