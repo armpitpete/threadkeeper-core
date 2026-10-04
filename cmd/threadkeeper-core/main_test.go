@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/armpitpete/threadkeeper-core/internal/ledger"
+	"github.com/armpitpete/threadkeeper-core/internal/restoreproof"
 )
 
 func TestRecoveryCompareCLIRejectsIncompleteProofs(t *testing.T) {
@@ -56,6 +57,41 @@ func TestRecoveryCompareCLIValidEqualAndMismatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "RECOVERY_PROOF_MISMATCH") {
 		t.Fatalf("unexpected mismatch error: %s", out)
+	}
+}
+
+func TestDigestCLIEmitsCanonicalProvenanceBytes(t *testing.T) {
+	raw, err := json.Marshal(map[string]any{
+		"schema_version":                 restoreproof.ProvenanceSchemaV1,
+		"primary_authority_domain_id":    "authority:primary",
+		"secondary_authority_domain_id":  "authority:secondary",
+		"secondary_location_id":          "location:secondary-a",
+		"secondary_operator_id":          "operator:secondary-a",
+		"backup_set_id":                  "backup:set-001",
+		"backup_artifact_id":             "artifact:ledger-001",
+		"backup_artifact_sha256":         strings.Repeat("a", 64),
+		"original_recovery_proof_sha256": strings.Repeat("b", 64),
+		"captured_at":                    "2026-08-14T14:00:00Z",
+		"restored_at":                    "2026-08-14T14:30:00Z",
+		"external_evidence_refs":         []string{"evidence:provider-receipt", "evidence:restore-log"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input := writeCLIProof(t, raw)
+	out, err := runCLIHelper(t, "digest", input)
+	if err != nil {
+		t.Fatalf("digest failed: %v out=%s", err, out)
+	}
+	if strings.HasSuffix(out, "\n") || strings.HasSuffix(out, "\r") {
+		t.Fatalf("digest output contains trailing whitespace: %q", out)
+	}
+	if _, err := restoreproof.DecodeProvenance([]byte(out)); err != nil {
+		t.Fatalf("digest output is not directly usable as strict provenance: %v", err)
+	}
+	withNewline := append([]byte(out), '\n')
+	if _, err := restoreproof.DecodeProvenance(withNewline); err == nil || !strings.Contains(err.Error(), "canonical JSON") {
+		t.Fatalf("strict provenance decoder accepted newline-contaminated bytes: %v", err)
 	}
 }
 

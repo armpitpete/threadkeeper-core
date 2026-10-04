@@ -35,6 +35,14 @@ Create the canonical digest-bound `threadkeeper.secondary-restore-provenance.v1`
 
 Do not add a Boolean such as `operational_independence_verified`. The schema rejects self-certification fields.
 
+Generate the durable completed document through the supported digest path:
+
+```text
+threadkeeper-core digest provenance-raw.json > secondary-provenance.json
+```
+
+The `digest` command writes the exact RFC 8785 canonical completed JSON bytes, including `content_sha256`, with no trailing newline. The resulting file can be passed directly to `recovery-restore-verify`. Do not run the durable file through a formatter or other tool that appends whitespace.
+
 ## Destructive boundary
 
 A real acceptance run must demonstrate recovery after loss/unavailability of the primary authority store. Before destructive action:
