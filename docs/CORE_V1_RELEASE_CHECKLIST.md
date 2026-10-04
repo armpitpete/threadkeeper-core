@@ -116,16 +116,16 @@ The existing production binary MUST remain available as rollback material during
 
 | Gate | Required result | Status | Exact evidence |
 |---|---|---|---|
-| I1 | exact candidate source + binary hashes named in promotion decision |  |  |
-| I2 | exact current production binary retained/recoverable |  |  |
-| I3 | exact pre-promotion RecoveryProof preserved outside authority store |  |  |
-| I4 | verified independent authority-ledger backup available |  |  |
-| I5 | explicit protected promotion authorization obtained |  |  |
-| I6 | active binary replaced only with exact tested artifact |  |  |
-| I7 | post-promotion SHA/version/write-gate reverified |  |  |
-| I8 | post-promotion RecoveryProof/replay identity reverified |  |  |
-| I9 | downstream product observation succeeds against exact promoted profile |  |  |
-| I10 | rollback remains available until acceptance recorded |  |  |
+| I1 | exact candidate source + binary hashes named in promotion decision | **PASS** | RC1 source `84c3e983768f67b518c6c84f2eb62f0bf4babae7`; binary SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`; exact promotion tuple recorded in Issue #94 |
+| I2 | exact current production binary retained/recoverable | **PASS** | pre-promotion binary preserved at `/opt/threadkeeper-core/rollback/threadkeeper-core-pre-rc1-7d823828` and local rollback copy; SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` |
+| I3 | exact pre-promotion RecoveryProof preserved outside authority store | **PASS** | local preserved proof `I:\ORDER\GitHub\_threadkeeper-core-gate-i\prepromotion-recovery-proof.json`; raw SHA-256 `978801ca94138353572a37d948db888e8b1585042c98bee85c3f4d7f43e2db88` |
+| I4 | verified independent authority-ledger backup available | **PASS** | OCI `/srv/threadkeeper-core-secondary/threadkeeper-core-production.bundle`; SHA-256 `3966077b7539c8826265278dd7be22ae0465e9fc35428d559f3854723417dc06`; strict fsck PASS; restored head `73fa0e66df2ae80b4b2a04247112470f6bb8e451` |
+| I5 | explicit protected promotion authorization obtained | **PASS** | exact owner authorization recorded in Issue #94 comment `5978584410`, bound to old SHA `7d8238...`, RC1 SHA `0bcfc7...`, source `84c3e983...` and fixed no-write/no-service/rollback boundaries |
+| I6 | active binary replaced only with exact tested artifact | **PASS** | `/usr/local/bin/threadkeeper-core` now SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`, exactly the side-by-side accepted RC1 artifact |
+| I7 | post-promotion SHA/version/write-gate reverified | **PASS** | version `threadkeeper-core-v1-rc1`; source `84c3e983768f67b518c6c84f2eb62f0bf4babae7`; `linux/amd64`; writes false; `authority-write` exit 1 with exact `AUTHORITY_WRITES_DISABLED` marker |
+| I8 | post-promotion RecoveryProof/replay identity reverified | **PASS** | raw RecoveryProof SHA-256 `978801ca94138353572a37d948db888e8b1585042c98bee85c3f4d7f43e2db88`; canonical `3806b7c8a94d9521a991927781ead2ca78ab4ec12b66cbceb641086e9e66cad4`; head/Genesis `73fa0e66...`; actor-policy root `803e6185...`; replay `6316bde6...`; ledger manifest unchanged `e98fea09...` |
+| I9 | downstream product observation succeeds against exact promoted profile | **PASS** | exact `armpitpete/threadkeeper@7a8b43481b70de9646ed882e5a950246781479e5` observer receipt SHA-256 `1e4ab01332101da18dd02a08e9ad7d306302a18ab3489bd044d5bf58443d3cb3`; `state_matches_expected:true` |
+| I10 | rollback remains available until acceptance recorded | **PASS** | root rollback artifact remains SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`; independent OCI backup and pre-promotion RecoveryProof also retained through acceptance |
 
 ## J. Final dispositions
 

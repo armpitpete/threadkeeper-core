@@ -151,9 +151,9 @@ Issue #51 records **Core v1 production operational acceptance with authority wri
 - Gate B independent-secondary destructive restore and exact Core equivalence: **PASS**;
 - Gate C direct Core service activation: **N/A by accepted architecture / PASS by review** because Core v1 remains intentionally CLI/library-only.
 
-The accepted deployed profile remains source `46f476fd4e0a346e45034310c423f6c1cd592f65`, binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37`, with no long-running Core service and no public authority-write transport.
+The accepted deployed profile is now `threadkeeper-core-v1-rc1`: source `84c3e983768f67b518c6c84f2eb62f0bf4babae7`, binary SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`, with no long-running Core service and no public authority-write transport. Gate I promotion evidence is preserved in Issue #94; the prior binary `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material.
 
-Protected source `main` later advanced through restore-verification/E2E work and optional MCP/Policy Pack contracts. That source advance is not an automatic production update. The downstream `armpitpete/threadkeeper` product deliberately binds its Core observer to the accepted deployed profile.
+Protected source `main` has advanced beyond the frozen RC1 source through later documentation/status reconciliation. That source advance is not itself a production update. The downstream `armpitpete/threadkeeper` product at protected main `7a8b43481b70de9646ed882e5a950246781479e5` deliberately binds its Core observer to the exact promoted RC1 profile.
 
 For any future Core binary replacement, the normative release boundary is `docs/CORE_V1_RELEASE_BOUNDARY.md`.
 
@@ -164,7 +164,7 @@ The two correctness blockers identified by the 2026-10-02 reconciliation are now
 
 Fresh post-merge conformance on `deb2cd42a69f61f30c2588b9cea18c75088aed97` (run `37065581798`) passed both required jobs, including whole-tree race coverage and the hard authority-write-disable proof.
 
-The remaining work belongs to the later release-candidate/deployment phase: exact candidate build/provenance, production-ledger-copy compatibility, downstream product-profile reconciliation, side-by-side live read-only validation and separately authorised promotion. This status does not authorise deployment.
+The release-candidate/deployment sequence through protected promotion is complete: exact candidate build/provenance, production-ledger-copy compatibility, downstream product-profile reconciliation, side-by-side live read-only validation and separately authorised promotion all passed. Remaining Core v1 release work is the Gate J final-disposition/closure record only; this status does not authorise service activation or authority-write enablement.
 
 Optional/non-v1 integrations remain external witness deployment, federation transport, checkpoint-accelerated replay, Recall/search/vector storage, GUI, MCP product transport and Policy/Specialist Pack product rollout unless separately selected.
 
