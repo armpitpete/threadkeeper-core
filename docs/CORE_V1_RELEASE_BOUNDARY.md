@@ -1,6 +1,6 @@
 # Threadkeeper Core v1 Read-Only Release Boundary
 
-**Status:** normative protected-main release boundary. Core v1 RC1 has completed protected promotion through Gate I with authority writes still hard-disabled; final Gate J dispositions remain to be recorded.
+**Status:** **FINAL / PRODUCTION READ-ONLY ACCEPTED / FROZEN** for `threadkeeper-core-v1-rc1`. Gates C–J are complete; authority writes remain hard-disabled and service activation remains N/A by the accepted CLI/library-only architecture.
 
 ## Purpose
 
@@ -8,7 +8,7 @@ The Threadkeeper Core v1 release boundary is:
 
 > **Threadkeeper Core v1 read-only production authority kernel: deterministic validation, replay, recovery, restore verification and production load assurance, with authority writes hard-disabled.**
 
-This document governed the protected Core v1 RC1 replacement now accepted through Gate I. It does not authorize any later binary replacement, service activation, public transport, ledger mutation or authority-write enablement; each remains a separate protected transition.
+This document governed the protected Core v1 RC1 replacement and Gate J terminal disposition. It does not authorize any later binary replacement, service activation, public transport, ledger mutation or authority-write enablement; each remains a separate protected transition.
 
 ## Current accepted production profile
 
@@ -26,7 +26,7 @@ The accepted production Core is now:
 - authority writes: disabled;
 - direct Core service: not applicable by accepted CLI/library-only architecture.
 
-Gate I promotion and post-promotion evidence are preserved in Issue #94. The prior accepted binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material; its earlier operational acceptance evidence remains preserved in Issue #51.
+Gate I promotion and post-promotion evidence are preserved in Issue #94. Gate J final dispositions and release closure are preserved in Issue #96. The prior accepted binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material; its earlier operational acceptance evidence remains preserved in Issue #51.
 
 ## In scope
 
@@ -170,7 +170,7 @@ The product-side change must remain fail-closed and must not widen the observer 
 
 Until post-promotion acceptance completes:
 
-- retain the accepted `46f476fd...` binary or exact recoverable artifact;
+- retain the current accepted binary/profile (`threadkeeper-core-v1-rc1`, source `84c3e983768f67b518c6c84f2eb62f0bf4babae7`, binary SHA-256 `0bcfc7afd0632fcbdb62bc421c7ca80ee51a67e2e91dd78562ae0659d0c83bac`) or an exact recoverable artifact;
 - retain its SHA/build evidence;
 - retain the pre-change RecoveryProof and production authority evidence;
 - retain a verified independent authority-ledger backup.
@@ -207,7 +207,7 @@ Every release checklist item MUST preserve:
 
 ## Cross-references
 
-- current reconciliation: `docs/CORE_V1_RECONCILIATION_2026-10-02.md`;
+- historical reconciliation baseline: `docs/CORE_V1_RECONCILIATION_2026-10-02.md`;
 - implementation status: `IMPLEMENTATION_STATUS.md`;
 - durable storage: `DURABLE_STORAGE_ARCHITECTURE.md`;
 - Fresh Genesis: `docs/operations/FRESH_GENESIS_DEPLOYMENT_V1.md`;

@@ -64,21 +64,23 @@ Do not create `threadkeeper-core.service`, a daemon or listener merely to satisf
 - replay SHA-256: `6316bde6bf6f2caa0bc33f9cd495c3bf222c35956c8403e55c890818f74fea12`;
 - authority writes: disabled;
 - direct Core service: none;
-- protected promotion through Gate I: PASS.
+- protected promotion through Gate I: PASS;
+- Gate J final dispositions / Core v1 read-only release closure: PASS.
 
 The prior binary SHA-256 `7d823828262e18d1ab6398687e451ddbb6ca536f4b460b8a767f55bc45348a37` remains retained as rollback material. Protected source `main` may advance beyond the frozen deployed source without itself changing production.
 
 ## Core v1 RC1 binary-replacement gate status
 
-The protected RC1 binary-replacement sequence is complete through Gate I:
+The protected RC1 release sequence is complete through Gate J:
 
 1. exact protected-main release-candidate conformance and build provenance: **PASS**;
 2. production-ledger-copy compatibility proof: **PASS**;
 3. downstream `armpitpete/threadkeeper` frozen Core-profile update: **PASS**;
 4. side-by-side live read-only equivalence before promotion: **PASS**;
-5. separately authorised protected promotion: **PASS**.
+5. separately authorised protected promotion: **PASS**;
+6. Gate J terminal dispositions and release closure: **PASS**.
 
-Gate I promotion evidence is preserved in Issue #94. Remaining Core v1 release work is the Gate J final-disposition/closure record only.
+Gate I promotion evidence is preserved in Issue #94. Gate J closure is preserved in Issue #96. There is no remaining Core v1 read-only release gate for the exact RC1 profile.
 
 No completed gate authorises a future binary replacement, Core service/listener, public transport, ledger-history rewrite or authority-write enablement. Those require separate protected decisions.
 
