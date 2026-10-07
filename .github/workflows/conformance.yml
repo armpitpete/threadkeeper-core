@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Enforce runner routing policy
-        run: python scripts/check_actions_routing.py
+        run: python3 scripts/check_actions_routing.py
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.5'
@@ -54,7 +54,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - name: Enforce runner routing policy
-        run: python scripts/check_actions_routing.py
+        run: python3 scripts/check_actions_routing.py
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.5'
