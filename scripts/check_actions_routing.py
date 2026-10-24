@@ -6,7 +6,7 @@ path = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "conforma
 lines = path.read_text(encoding="utf-8").splitlines()
 OWNED = "[self-hosted, Linux, ARM64, oracle-ci, threadkeeper-core]"
 expected = {
-    "test": "ubuntu-latest",
+    "test": OWNED,
     "test-owned": OWNED,
     "windows-git-environment-isolation": "windows-latest",
 }
@@ -42,11 +42,14 @@ for name, runner in expected.items():
         errors.append(f"{name}: dynamic runs-on forbidden")
 
 if "test" in jobs and not any("if: github.event_name == 'pull_request'" in x for x in jobs["test"]):
-    errors.append("test: hosted Linux exception must be pull_request-only")
+    errors.append("test: owned Linux PR job must be pull_request-only")
 if "test-owned" in jobs and not any("if: github.event_name == 'push'" in x for x in jobs["test-owned"]):
     errors.append("test-owned: owned Linux job must be push-only")
 if set(jobs) != set(expected):
     errors.append("job set differs from routing policy: " + repr(sorted(jobs)))
+
+if "test" in jobs and not any("github.event.pull_request.head.repo.full_name == github.repository" in x for x in jobs["test"]):
+    errors.append("test: self-hosted Linux PR job must reject fork pull requests")
 
 if errors:
     print("\n".join(errors), file=sys.stderr)
