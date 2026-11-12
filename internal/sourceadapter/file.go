@@ -12,7 +12,10 @@ import (
 	"github.com/armpitpete/threadkeeper-core/internal/source"
 )
 
-type FileAdapter struct{root string}
+type FileAdapter struct {
+	root string
+	rootIdentity os.FileInfo
+}
 
 type Request struct {
 	SourceID       string `json:"source_id"`
@@ -31,7 +34,7 @@ func NewFileAdapter(root string)(*FileAdapter,error){
 	if root==""{return nil,fmt.Errorf("SOURCE_ADAPTER_INVALID: root required")}
 	abs,err:=filepath.Abs(root);if err!=nil{return nil,err}
 	info,err:=os.Lstat(abs);if err!=nil{return nil,err};if info.Mode()&os.ModeSymlink!=0||!info.IsDir(){return nil,fmt.Errorf("SOURCE_ADAPTER_INVALID: root must be a real directory")}
-	return &FileAdapter{root:abs},nil
+	return &FileAdapter{root:abs, rootIdentity:info},nil
 }
 
 func(a *FileAdapter)Fetch(ctx context.Context,req Request)(Snapshot,error){
@@ -42,7 +45,10 @@ func(a *FileAdapter)Fetch(ctx context.Context,req Request)(Snapshot,error){
 	info,err:=os.Lstat(full);if err!=nil{return Snapshot{},err};if info.Mode()&os.ModeSymlink!=0||!info.Mode().IsRegular(){return Snapshot{},fmt.Errorf("SOURCE_ADAPTER_INVALID: source path must be a regular file")}
 	// Check and open under the same root boundary. Separate Lstat followed by
 	// os.ReadFile can be raced by an attacker who can replace path components.
-	opened,err:=os.OpenInRoot(a.root,clean)
+	rootHandle,err:=a.openVerifiedRoot()
+	if err!=nil{return Snapshot{},err}
+	defer rootHandle.Close()
+	opened,err:=rootHandle.Open(clean)
 	if err!=nil{return Snapshot{},err}
 	defer opened.Close()
 	openedInfo,err:=opened.Stat()
@@ -59,3 +65,23 @@ func FetchAndEscrow(ctx context.Context,adapter *FileAdapter,store *escrow.Store
 }
 
 func rejectSymlinkPath(root,rel string)error{current:=root;for _,part:=range strings.Split(filepath.Clean(rel),string(filepath.Separator)){current=filepath.Join(current,part);info,err:=os.Lstat(current);if err!=nil{return err};if info.Mode()&os.ModeSymlink!=0{return fmt.Errorf("SOURCE_ADAPTER_INVALID: symlink path component %q",part)}};return nil}
+
+// openVerifiedRoot prevents replacement of the configured source directory
+// from changing the trust boundary. The opened root pins the directory for
+// the duration of Fetch even if the pathname changes afterward.
+func (a *FileAdapter) openVerifiedRoot() (*os.Root, error) {
+	root, err := os.OpenRoot(a.root)
+	if err != nil {
+		return nil, err
+	}
+	current, err := root.Stat(".")
+	if err != nil {
+		root.Close()
+		return nil, err
+	}
+	if !os.SameFile(a.rootIdentity, current) {
+		root.Close()
+		return nil, fmt.Errorf("SOURCE_ADAPTER_INVALID: configured root identity changed")
+	}
+	return root, nil
+}
