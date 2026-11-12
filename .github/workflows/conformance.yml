@@ -101,3 +101,7 @@ jobs:
         env:
           CGO_ENABLED: '0'
         run: go test ./internal/loadproof
+      - name: Prove Windows source and escrow containment
+        env:
+          CGO_ENABLED: '0'
+        run: go test ./internal/sourceadapter ./internal/escrow
