@@ -3,6 +3,7 @@ package sourceadapter
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -39,7 +40,17 @@ func(a *FileAdapter)Fetch(ctx context.Context,req Request)(Snapshot,error){
 	clean:=filepath.Clean(filepath.FromSlash(req.RelativePath));if req.RelativePath==""||filepath.IsAbs(clean)||clean=="."||clean==".."||strings.HasPrefix(clean,".."+string(filepath.Separator)){return Snapshot{},fmt.Errorf("SOURCE_ADAPTER_INVALID: unsafe relative path")}
 	full:=filepath.Join(a.root,clean);if err:=rejectSymlinkPath(a.root,clean);err!=nil{return Snapshot{},err}
 	info,err:=os.Lstat(full);if err!=nil{return Snapshot{},err};if info.Mode()&os.ModeSymlink!=0||!info.Mode().IsRegular(){return Snapshot{},fmt.Errorf("SOURCE_ADAPTER_INVALID: source path must be a regular file")}
-	content,err:=os.ReadFile(full);if err!=nil{return Snapshot{},err};got:=escrow.HashContent(content);if got!=strings.ToLower(req.ExpectedSHA256){return Snapshot{},fmt.Errorf("SOURCE_VERSION_MISMATCH: got %s want %s",got,req.ExpectedSHA256)}
+	// Check and open under the same root boundary. Separate Lstat followed by
+	// os.ReadFile can be raced by an attacker who can replace path components.
+	opened,err:=os.OpenInRoot(a.root,clean)
+	if err!=nil{return Snapshot{},err}
+	defer opened.Close()
+	openedInfo,err:=opened.Stat()
+	if err!=nil{return Snapshot{},err}
+	if !openedInfo.Mode().IsRegular(){return Snapshot{},fmt.Errorf("SOURCE_ADAPTER_INVALID: source path must be a regular file")}
+	content,err:=io.ReadAll(opened)
+	if err!=nil{return Snapshot{},err}
+	got:=escrow.HashContent(content);if got!=strings.ToLower(req.ExpectedSHA256){return Snapshot{},fmt.Errorf("SOURCE_VERSION_MISMATCH: got %s want %s",got,req.ExpectedSHA256)}
 	return Snapshot{Version:source.Version{ID:got,ContentSHA256:got,Locator:filepath.ToSlash(clean)},Content:content,MediaType:req.MediaType},nil
 }
 
