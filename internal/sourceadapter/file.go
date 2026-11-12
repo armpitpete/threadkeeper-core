@@ -34,7 +34,19 @@ func NewFileAdapter(root string)(*FileAdapter,error){
 	if root==""{return nil,fmt.Errorf("SOURCE_ADAPTER_INVALID: root required")}
 	abs,err:=filepath.Abs(root);if err!=nil{return nil,err}
 	info,err:=os.Lstat(abs);if err!=nil{return nil,err};if info.Mode()&os.ModeSymlink!=0||!info.IsDir(){return nil,fmt.Errorf("SOURCE_ADAPTER_INVALID: root must be a real directory")}
-	return &FileAdapter{root:abs, rootIdentity:info},nil
+	// Capture the same rooted file identity representation used by Fetch.
+	// On Windows, Lstat and Root.Stat may expose different file identifiers.
+	openedRoot,err:=os.OpenRoot(abs)
+	if err!=nil{return nil,err}
+	defer openedRoot.Close()
+	openedInfo,err:=openedRoot.Stat(".")
+	if err!=nil{return nil,err}
+	after,err:=os.Lstat(abs)
+	if err!=nil{return nil,err}
+	if after.Mode()&os.ModeSymlink!=0||!after.IsDir()||!os.SameFile(info,openedInfo)||!os.SameFile(openedInfo,after){
+		return nil,fmt.Errorf("SOURCE_ADAPTER_INVALID: root changed while opening")
+	}
+	return &FileAdapter{root:abs, rootIdentity:openedInfo},nil
 }
 
 func(a *FileAdapter)Fetch(ctx context.Context,req Request)(Snapshot,error){
